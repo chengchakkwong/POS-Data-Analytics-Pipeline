@@ -1,0 +1,46 @@
+--- 安全與私密 ---
+
+.env
+*.env
+
+--- 數據檔案 (保護商業秘密) ---
+
+data/
+justfortest/
+Base/
+*.csv
+*.parquet
+*.xlsx
+*.sql
+*.txt
+
+--- Python 環境與編譯 ---
+
+pycache/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.anaconda/
+.conda/
+build/
+dist/
+
+--- 筆記本與實驗 ---
+
+*.ipynb
+.ipynb_checkpoints/
+
+--- 系統與 IDE 檔案 ---
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+--- 日誌 ---
+
+*.log
+logs/
