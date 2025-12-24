@@ -1,151 +1,128 @@
 import pandas as pd
+import numpy as np
 import os
-import time
 
-def preprocess_data(df_stock, df_sales, conservative_cost_ratio=0.80):
+def analyze_profit_abc(
+    stock_df: pd.DataFrame, 
+    sales_df: pd.DataFrame, 
+    conservative_cost_ratio: float = 0.80
+) -> pd.DataFrame:
     """
-    數據預處理：合併資料、標記雜項並修正虛假利潤。
+    優化後的商品 ABC 利潤分析 (向量化版本)
     """
-    # 合併數據
-    df = pd.merge(
-        df_sales, 
-        df_stock[['GoodsID', 'ProductCode', 'Barcode', 'Name', 'Category', 'Supplier', 'RetailPrice', 'LastInCost', 'CurrStock']], 
-        on='GoodsID', 
-        how='left'
+    # 1. 彙總銷售資料
+    sales_summary = sales_df.groupby('GoodsID').agg({
+        'TotalQty': 'sum', 
+        'TotalAmt': 'sum'
+    }).reset_index()
+
+    # 2. 合併資料 (Outer Join)
+    merged_df = pd.merge(sales_summary, stock_df, on='GoodsID', how='outer')
+
+    # 3. 數值與文字欄位填補 (優化速度)
+    numeric_cols = ['TotalQty', 'TotalAmt', 'CurrStock', 'RetailPrice', 'LastInCost', 'AvgCost']
+    merged_df[numeric_cols] = merged_df[numeric_cols].fillna(0)
+
+    # 處理被刪除商品的名稱與代碼 (避免使用 apply)
+    mask_missing_info = merged_df['ProductCode'].isna()
+    if mask_missing_info.any():
+        deleted_labels = "Deleted (ID: " + merged_df['GoodsID'].astype(str).str.split('.').str[0] + ")"
+        merged_df['ProductCode'] = merged_df['ProductCode'].fillna(deleted_labels)
+        merged_df['Name'] = merged_df['Name'].fillna(deleted_labels)
+    
+    merged_df['Barcode'] = merged_df['Barcode'].fillna("DELETED")
+    
+    # 填補其餘文字欄位
+    text_cols = ['Category', 'Supplier', 'Note', 'InboundLocation']
+    for col in text_cols:
+        if col in merged_df.columns:
+            merged_df[col] = merged_df[col].fillna("DELETED")
+
+    # 4. 標記「雜項 / 泛用」類商品
+    generic_conditions = (
+        (merged_df['ProductCode'].astype(str) == '202320232023') |
+        (merged_df['Name'].str.contains('五金家品|Deleted|膠袋徵費', na=False))
+    )
+    merged_df['Is_Generic'] = np.where(generic_conditions, 'Yes', 'No')
+
+    # 5. 向量化計算調整後成本 (取代 apply)
+    # 計算成交單價
+    unit_price = np.where(merged_df['TotalQty'] > 0, merged_df['TotalAmt'] / merged_df['TotalQty'], 0)
+    
+    # 判斷成本是否異常 (成本缺失 或 售價/成本 > 9)
+    cost_missing = (merged_df['LastInCost'] <= 0)
+    
+    # 避免除以 0 的警告，先設為 True
+    cost_suspicious = np.zeros(len(merged_df), dtype=bool)
+    valid_cost_mask = merged_df['LastInCost'] > 0
+    cost_suspicious[valid_cost_mask] = (unit_price[valid_cost_mask] / merged_df.loc[valid_cost_mask, 'LastInCost']) > 9
+
+    # 計算 AdjustedCost
+    merged_df['AdjustedCost'] = np.where(
+        cost_missing | cost_suspicious,
+        unit_price * conservative_cost_ratio,
+        merged_df['LastInCost']
     )
 
-    # 標記雜項 (Is_Generic)
-    df['Is_Generic_Flag'] = (
-        (df['ProductCode'].astype(str) == '202320232023') |
-        (df['Name'].str.contains('五金家品', na=False))
-    )
-    df['Is_Generic'] = df['Is_Generic_Flag'].map({True: 'Yes', False: 'No'})
+    # 6. 計算利潤
+    merged_df['TotalCost'] = merged_df['AdjustedCost'] * merged_df['TotalQty']
+    merged_df['TotalProfit'] = merged_df['TotalAmt'] - merged_df['TotalCost']
 
-    # 修正成本邏輯
-    def get_adjusted_cost(row):
-        base_cost = row['LastInCost']
-        total_amt = row['TotalAmt']
-        total_qty = row['TotalQty']
-        
-        # 計算實際成交單價
-        unit_price = total_amt / total_qty if total_qty > 0 else 0
-        
-        # 判定條件 1：成本為 0 或缺失 (針對雜項)
-        is_cost_missing = (base_cost <= 0 or pd.isna(base_cost))
-        
-        # 判定條件 2：異常高毛利 (售價/成本 比率 > 9)
-        # 說明：如果售價是成本的 9 倍以上，通常是入庫單位錯誤，視為「成本不對」
-        is_cost_suspicious = False
-        if base_cost > 0 and unit_price > 0:
-            if (unit_price / base_cost) > 9:
-                is_cost_suspicious = True
+    # 7. ABC 分類計算 (只針對非 Generic)
+    is_calc = merged_df['Is_Generic'] == 'No'
+    df_calc = merged_df[is_calc].copy()
+    df_excl = merged_df[~is_calc].copy()
 
-        # 如果符合以上任一條件，且屬於雜項或特定需要調整的對象
-        if (is_cost_missing or is_cost_suspicious):
-            return unit_price * conservative_cost_ratio
-        
-        return base_cost
-
-    df['AdjustedCost'] = df.apply(get_adjusted_cost, axis=1)
-    df['TotalCost'] = df['AdjustedCost'] * df['TotalQty']
-    df['TotalProfit'] = df['TotalAmt'] - df['TotalCost']
+    # 排序並計算累計利潤
+    df_calc = df_calc.sort_values(by='TotalProfit', ascending=False)
+    df_calc['CumulativeProfit'] = df_calc['TotalProfit'].cumsum()
     
-    return df
+    total_prof_sum = df_calc['TotalProfit'].sum()
+    if total_prof_sum != 0:
+        df_calc['ProfitCumulativeRatio'] = df_calc['CumulativeProfit'] / total_prof_sum
+    else:
+        df_calc['ProfitCumulativeRatio'] = 0
 
-def analyze_supplier_performance(df):
-    """
-    [分析 1] 供應商表現排行
-    """
-    return df.groupby('Supplier').agg({
-        'TotalAmt': 'sum',
-        'TotalProfit': 'sum',
-        'TotalQty': 'sum',
-    }).sort_values(by='TotalProfit', ascending=False)
+    # 8. 套用 ABC 分級標籤 (向量化)
+    conditions = [
+        (df_calc['ProfitCumulativeRatio'] <= 0.7),
+        (df_calc['ProfitCumulativeRatio'] <= 0.9),
+        (df_calc['ProfitCumulativeRatio'] > 0.9)
+    ]
+    choices = ['A', 'B', 'C']
+    df_calc['ABC_Class'] = np.select(conditions, choices, default='else')
 
-def analyze_abc_classification(df):
-    """
-    [分析 2] 產品 ABC 分級 (僅針對非雜項)
-    """
-    product_profit = (
-        df[df['Is_Generic'] == 'No']
-        .groupby(['ProductCode', 'Name'], as_index=False)
-        .agg({'TotalProfit': 'sum', 'TotalQty': 'sum'})
-        .sort_values(by='TotalProfit', ascending=False)
-    )
+    # 9. 處理排除項目的欄位
+    df_excl['CumulativeProfit'] = np.nan
+    df_excl['ProfitCumulativeRatio'] = np.nan
+    df_excl['ABC_Class'] = 'Excluded'
 
-    if product_profit.empty:
-        return pd.DataFrame()
-
-    product_profit['CumSumProfit'] = product_profit['TotalProfit'].cumsum()
-    total_profit_sum = product_profit['TotalProfit'].sum()
-    product_profit['ProfitPercent'] = product_profit['CumSumProfit'] / total_profit_sum
-
-    def abc_classifier(percent):
-        if percent <= 0.7: return 'A'
-        elif percent <= 0.9: return 'B'
-        else: return 'C'
-
-    product_profit['ABC_Class'] = product_profit['ProfitPercent'].apply(abc_classifier)
-    return product_profit
-
-def analyze_inventory_health(df_stock, df_sales, df_merged):
-    """
-    [分析 3] 庫存健康度與補貨預警
-    """
-    total_days = (pd.to_datetime(df_sales['rDate']).max() - pd.to_datetime(df_sales['rDate']).min()).days + 1
-    avg_daily_sales = df_merged.groupby('GoodsID')['TotalQty'].sum() / total_days
+    # 10. 合併回最終結果
+    final_df = pd.concat([df_calc, df_excl], ignore_index=True)
+    final_df['displayname'] = final_df['Name'] + " | " + final_df['ProductCode']
     
-    df_inventory = df_stock[['GoodsID', 'Name', 'CurrStock', 'Category']].copy()
-    df_inventory['AvgDailySales'] = df_inventory['GoodsID'].map(avg_daily_sales).fillna(0)
-    df_inventory['DaysOfInventory'] = df_inventory['CurrStock'] / df_inventory['AvgDailySales']
-    
-    df_inventory['Status'] = 'Normal'
-    df_inventory.loc[(df_inventory['DaysOfInventory'] < 7) & (df_inventory['AvgDailySales'] > 0), 'Status'] = 'Low Stock'
-    df_inventory.loc[df_inventory['AvgDailySales'] == 0, 'Status'] = 'Dead Stock'
-    
-    return df_inventory
+    # 依利潤排序 (A商品在前)
+    final_df = final_df.sort_values(by=['ABC_Class', 'TotalProfit'], ascending=[True, False])
 
-def generate_business_insights(df_stock, df_sales):
-    """
-    【主程序】統籌所有分析函式並輸出結果。
-    """
-    print(f"🚀 [{time.strftime('%H:%M:%S')}] 啟動模組化商業分析程序...")
-
-    if df_stock is None or df_sales is None:
-        print("❌ 錯誤：數據輸入為空。")
-        return None
-
-    # 1. 預處理
-    df_master = preprocess_data(df_stock, df_sales)
-
-    # 2. 執行各項分析
-    df_supplier = analyze_supplier_performance(df_master)
-    df_abc = analyze_abc_classification(df_master)
-    df_inventory = analyze_inventory_health(df_stock, df_sales, df_master)
-
-    # 3. 儲存結果
-    if not os.path.exists('data/insights'):
-        os.makedirs('data/insights')
-    
-    df_master.drop(columns=['Is_Generic_Flag']).to_csv('data/insights/bi_master_sales_report.csv', index=False, encoding='utf-8-sig')
-    df_supplier.to_csv('data/insights/supplier_performance.csv', encoding='utf-8-sig')
-    df_abc.to_csv('data/insights/product_abc_analysis.csv', index=False, encoding='utf-8-sig')
-    df_inventory.to_csv('data/insights/inventory_health_report.csv', index=False, encoding='utf-8-sig')
-
-    print("-" * 40)
-    print(f"✅ 模組化分析完成！已產出以下報表：")
-    print(f"1. bi_master_sales_report.csv (總表)")
-    print(f"2. supplier_performance.csv (供應商)")
-    print(f"3. product_abc_analysis.csv (ABC 分級)")
-    print(f"4. inventory_health_report.csv (庫存健康)")
-    print("-" * 40)
-    
-    return df_master
+    return final_df
 
 if __name__ == "__main__":
+    # 設定路徑
+    input_stock = "data/processed/DetailGoodsStockToday.csv"
+    input_sales = "data/processed/vw_GoodsDailySales_cache.parquet"
+    output_path = "data/processed/ABC_Analysis_Insights2.csv"
+
     try:
-        df_s = pd.read_csv("data/processed/DetailGoodsStockToday.csv")
-        df_h = pd.read_parquet("data/processed/vw_GoodsDailySales_cache.parquet")
-        generate_business_insights(df_s, df_h)
+        if not os.path.exists(input_stock) or not os.path.exists(input_sales):
+            print("❌ 錯誤: 找不到輸入檔案，請確認路徑。")
+        else:
+            df_s = pd.read_csv(input_stock)
+            df_h = pd.read_parquet(input_sales)
+            
+            df_insights = analyze_profit_abc(df_s, df_h)
+            
+            df_insights.to_csv(output_path, index=False, encoding='utf-8-sig')
+            print(f"✅ 商業洞察分析完成！儲存至: {output_path}")
+            
     except Exception as e:
-        print(f"分析失敗: {e}")
+        print(f"❌ 分析失敗: {e}")
