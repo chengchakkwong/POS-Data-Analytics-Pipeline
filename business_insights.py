@@ -24,9 +24,26 @@ def preprocess_data(df_stock, df_sales, conservative_cost_ratio=0.80):
     # 修正成本邏輯
     def get_adjusted_cost(row):
         base_cost = row['LastInCost']
-        if (base_cost == 0 or pd.isna(base_cost)) and row['Is_Generic_Flag']:
-            unit_price = row['TotalAmt'] / row['TotalQty'] if row['TotalQty'] > 0 else 0
+        total_amt = row['TotalAmt']
+        total_qty = row['TotalQty']
+        
+        # 計算實際成交單價
+        unit_price = total_amt / total_qty if total_qty > 0 else 0
+        
+        # 判定條件 1：成本為 0 或缺失 (針對雜項)
+        is_cost_missing = (base_cost <= 0 or pd.isna(base_cost))
+        
+        # 判定條件 2：異常高毛利 (售價/成本 比率 > 9)
+        # 說明：如果售價是成本的 9 倍以上，通常是入庫單位錯誤，視為「成本不對」
+        is_cost_suspicious = False
+        if base_cost > 0 and unit_price > 0:
+            if (unit_price / base_cost) > 9:
+                is_cost_suspicious = True
+
+        # 如果符合以上任一條件，且屬於雜項或特定需要調整的對象
+        if (is_cost_missing or is_cost_suspicious):
             return unit_price * conservative_cost_ratio
+        
         return base_cost
 
     df['AdjustedCost'] = df.apply(get_adjusted_cost, axis=1)
