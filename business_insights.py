@@ -110,7 +110,7 @@ if __name__ == "__main__":
     # 設定路徑
     input_stock = "data/processed/DetailGoodsStockToday.csv"
     input_sales = "data/processed/vw_GoodsDailySales_cache.parquet"
-    output_path = "data/processed/ABC_Analysis_Insights2.csv"
+    output_path = "data/insights/ABC_Analysis_Insights.csv"
 
     try:
         if not os.path.exists(input_stock) or not os.path.exists(input_sales):
