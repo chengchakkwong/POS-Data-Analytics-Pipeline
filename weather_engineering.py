@@ -16,19 +16,23 @@ class WeatherFeatureBuilder:
     TARGET_STATION = 'YLP' 
 
     @staticmethod
-    def get_daily_temperature(start_year=2023, end_year=2024, save_dir='data/external_factors'):
+    def get_daily_temperature(start_year=2024, end_year=None, save_dir='data/external_factors'):
         """
         從 HKO API 獲取元朗公園 (YLP) 的每日平均氣溫數據。
 
         Args:
-            start_year (int): 篩選開始年份
-            end_year (int): 篩選結束年份
+            start_year (int): 篩選開始年份 (預設 2024)
+            end_year (int, optional): 篩選結束年份。預設為 None，會自動獲取當前年份 (最新一天)。
             save_dir (str): 儲存路徑
 
         Returns:
             pd.DataFrame: 包含 date, mean_temp, temp_ma_7, temp_diff 的數據
         """
         
+        # [修改點 1] 動態獲取當前年份
+        if end_year is None:
+            end_year = datetime.now().year
+            
         station_code = WeatherFeatureBuilder.TARGET_STATION
         
         # 1. 構建 API URL
@@ -36,6 +40,7 @@ class WeatherFeatureBuilder:
         url = f"https://data.weather.gov.hk/weatherAPI/opendata/opendata.php?dataType=CLMTEMP&rformat=csv&station={station_code}"
         
         print(f"正在下載元朗店周邊氣溫數據 (站點: {station_code})...")
+        print(f"目標時間範圍: {start_year} 至 {end_year} (最新)")
         
         try:
             # 2. 下載數據
@@ -61,17 +66,17 @@ class WeatherFeatureBuilder:
             df['month'] = pd.to_numeric(df['month'], errors='coerce').fillna(1).astype(int)
             df['day'] = pd.to_numeric(df['day'], errors='coerce').fillna(1).astype(int)
 
-            # [優化步驟 1] 先建立日期欄位，才能做精確的天數篩選
+            # [優化步驟 1] 先建立日期欄位
             df['date'] = pd.to_datetime(df[['year', 'month', 'day']])
 
             # [優化步驟 2] 精準緩衝裁切 (Smart Buffer)
-            # 用戶建議：不需要多抓一年，只要足夠計算 7天移動平均即可。
             # 邏輯：start_year 的 1月1日 需要前 7 天的數據。
-            # 設定：我們往前抓 14 天 (2週) 作為安全緩衝，既節省資源又保證計算不中斷。
+            # 設定：我們往前抓 14 天 (2週) 作為安全緩衝。
             target_start_date = pd.Timestamp(f"{start_year}-01-01")
             buffer_start_date = target_start_date - timedelta(days=14)
             
             # 篩選：日期 >= 緩衝開始日  且  年份 <= 結束年份
+            # 注意：這裡的 end_year 已經是當前年份，所以會包含到今天為止的所有數據
             mask_buffer = (df['date'] >= buffer_start_date) & (df['year'] <= end_year)
             df = df.loc[mask_buffer].copy()
 
@@ -86,24 +91,24 @@ class WeatherFeatureBuilder:
             # --- 特徵工程 ---
             
             # [特徵 A] 7天移動平均
-            # 由於我們保留了前 14 天的數據，計算出來的第 8 天 (即 start_year 1月1日) 就會有準確數值
             df['temp_ma_7'] = df['mean_temp'].rolling(window=7).mean() 
             
             # [特徵 B] 溫差 (今日 - 昨日)
             df['temp_diff'] = df['mean_temp'].diff() 
 
             # 6. 最終裁切 (Final Cut)
-            # 切掉那 14 天的緩衝，只回傳使用者真正要的年份
+            # 切掉緩衝區，只回傳使用者真正要的年份
             mask_final = (df['year'] >= start_year) & (df['year'] <= end_year)
             
             # 選取需要的欄位
             df_final = df.loc[mask_final, ['date', 'mean_temp', 'temp_ma_7', 'temp_diff']].copy()
             
-            # 再次檢查 NaN (理論上 buffer 夠長就不會有)
+            # 再次檢查 NaN
             df_final.fillna(method='bfill', inplace=True) 
 
             # 8. 儲存
             os.makedirs(save_dir, exist_ok=True)
+            # 檔名也動態更新，方便識別
             save_path = os.path.join(save_dir, f'yuen_long_weather_{start_year}_{end_year}.csv')
             df_final.to_csv(save_path, index=False)
             
@@ -120,19 +125,11 @@ class WeatherFeatureBuilder:
 
 # --- 測試代碼 ---
 if __name__ == "__main__":
-    # 測試抓取數據
+    # 測試：不傳入 end_year，驗證是否自動抓到最新年份 (例如 2025)
     df_weather = WeatherFeatureBuilder.get_daily_temperature(
-        start_year=2023, 
-        end_year=2024
+        start_year=2024
     )
     
     if not df_weather.empty:
-        print("\n--- 元朗氣溫數據預覽 (檢查 1月1日是否有值) ---")
-        print(df_weather.head(10))
-        
-        print("\n--- 驟降溫日子檢查 (temp_diff < -3) ---")
-        cold_snaps = df_weather[df_weather['temp_diff'] < -3]
-        if not cold_snaps.empty:
-            print(cold_snaps.head())
-    else:
-        print("DataFrame 為空，請檢查錯誤訊息。")
+        print("\n--- 元朗氣溫數據預覽 ---")
+        print(df_weather.tail()) # 看最後幾筆確認是否為最新日期
