@@ -2,7 +2,7 @@ import pandas as pd
 import requests
 import io
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class WeatherFeatureBuilder:
     """
@@ -60,33 +60,46 @@ class WeatherFeatureBuilder:
             df['year'] = df['year'].astype(int)
             df['month'] = pd.to_numeric(df['month'], errors='coerce').fillna(1).astype(int)
             df['day'] = pd.to_numeric(df['day'], errors='coerce').fillna(1).astype(int)
-            
-            # 4. 建立日期欄位
+
+            # [優化步驟 1] 先建立日期欄位，才能做精確的天數篩選
             df['date'] = pd.to_datetime(df[['year', 'month', 'day']])
+
+            # [優化步驟 2] 精準緩衝裁切 (Smart Buffer)
+            # 用戶建議：不需要多抓一年，只要足夠計算 7天移動平均即可。
+            # 邏輯：start_year 的 1月1日 需要前 7 天的數據。
+            # 設定：我們往前抓 14 天 (2週) 作為安全緩衝，既節省資源又保證計算不中斷。
+            target_start_date = pd.Timestamp(f"{start_year}-01-01")
+            buffer_start_date = target_start_date - timedelta(days=14)
+            
+            # 篩選：日期 >= 緩衝開始日  且  年份 <= 結束年份
+            mask_buffer = (df['date'] >= buffer_start_date) & (df['year'] <= end_year)
+            df = df.loc[mask_buffer].copy()
+
+            if df.empty:
+                print(f"警告：找不到 {buffer_start_date.date()} 到 {end_year} 之間的數據。")
+                return pd.DataFrame()
             
             # 5. 處理缺失值
             df['mean_temp'] = pd.to_numeric(df['mean_temp'], errors='coerce')
             df['mean_temp'] = df['mean_temp'].ffill()
             
-            # --- 特徵工程 (順序優化) ---
-            # [關鍵修改] 
-            # 我們在篩選年份 "之前" 先計算特徵。
-            # 這樣 start_year 的 1月1日 就能用到去年的 12月 數據來計算 7天平均，
-            # 避免了前幾天出現 NaN (空值) 的情況。
+            # --- 特徵工程 ---
             
             # [特徵 A] 7天移動平均
+            # 由於我們保留了前 14 天的數據，計算出來的第 8 天 (即 start_year 1月1日) 就會有準確數值
             df['temp_ma_7'] = df['mean_temp'].rolling(window=7).mean() 
             
             # [特徵 B] 溫差 (今日 - 昨日)
             df['temp_diff'] = df['mean_temp'].diff() 
 
-            # 6. 篩選時間範圍 (現在可以放心地切了)
-            mask = (df['year'] >= start_year) & (df['year'] <= end_year)
+            # 6. 最終裁切 (Final Cut)
+            # 切掉那 14 天的緩衝，只回傳使用者真正要的年份
+            mask_final = (df['year'] >= start_year) & (df['year'] <= end_year)
             
             # 選取需要的欄位
-            df_final = df.loc[mask, ['date', 'mean_temp', 'temp_ma_7', 'temp_diff']].copy()
+            df_final = df.loc[mask_final, ['date', 'mean_temp', 'temp_ma_7', 'temp_diff']].copy()
             
-            # 再次檢查 NaN (理論上不應該有了，除非 start_year 是該站點歷史第一年)
+            # 再次檢查 NaN (理論上 buffer 夠長就不會有)
             df_final.fillna(method='bfill', inplace=True) 
 
             # 8. 儲存
