@@ -1,46 +1,105 @@
---- 安全與私密 ---
+# Git 版本控制排除規則
+# 保護敏感資料不被提交到版本控制
 
+# 敏感資料文件夾
+sensitive/
+private/
+confidential/
+secrets/
+credentials/
+personal/
+
+# 環境變量和配置文件
 .env
+.env.local
+.env.*.local
 *.env
+config.ini
+settings.ini
+secrets.json
 
---- 數據檔案 (保護商業秘密) ---
+# 憑證和密鑰文件
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+id_rsa
+id_dsa
+*.pub
+*.private
 
-data/
-justfortest/
-Base/
-*.csv
-*.parquet
-*.xlsx
+# 數據庫文件
+*.db
+*.sqlite
+*.sqlite3
+*.mdb
+*.accdb
 *.sql
-*.txt
 
---- Python 環境與編譯 ---
+# 日誌文件
+*.log
+logs/
+log/
 
+# 備份文件
+*.bak
+*.backup
+*.old
+*.tmp
+*.temp
+
+# Python 相關
+__pycache__/
 pycache/
 *.py[cod]
 *$py.class
-.venv/
+*.so
+.Python
 venv/
 env/
+ENV/
+.venv
 .anaconda/
 .conda/
 build/
 dist/
+pip-log.txt
+pip-delete-this-directory.txt
 
---- 筆記本與實驗 ---
-
+# Jupyter 筆記本與實驗
 *.ipynb
 .ipynb_checkpoints/
 
---- 系統與 IDE 檔案 ---
-
+# IDE 相關
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
 desktop.ini
 
---- 日誌 ---
+# Firebase 配置文件
+firebase-config.json
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+google-services.json
+GoogleService-Info.plist
+firebase-adminsdk-*.json
 
-*.log
-logs/
+# 數據文件（保護商業秘密）
+data/
+justfortest/
+Base/
+*.csv
+*.xlsx
+*.xls
+*.txt
+*.parquet
+
+# 文檔文件
+*.md
