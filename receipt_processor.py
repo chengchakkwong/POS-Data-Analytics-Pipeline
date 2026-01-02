@@ -7,16 +7,9 @@ from datetime import datetime
 from typing import List, Generator, Dict, Optional, Tuple, Any
 import time
 import os
-# --- 設定 Log ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%H:%M:%S',
-    handlers=[
-        logging.FileHandler("app.log", encoding='utf-8'), # 寫入檔案，檔名叫做 app.log
-        logging.StreamHandler()                           # 顯示在螢幕上
-    ]
-)
+import logger_config  # 導入統一的日誌配置
+
+# 使用統一的日誌配置
 logger = logging.getLogger(__name__)
 
 # --- 設定管理器 (單一表格模式) ---
@@ -110,8 +103,9 @@ class BatchReceiptLoader:
                 break # 成功移動後跳出迴圈
             except PermissionError:
                 logger.warning(f"⚠️ 無法移動檔案 (被佔用): {file_path.name}")
-                print(f"\n🛑 錯誤：檔案 '{file_path.name}' 正被 Excel 開啟中！")
-                input("👉 請關閉該檔案，然後按 [Enter] 鍵重試...")
+                logger.error(f"🛑 錯誤：檔案 '{file_path.name}' 正被 Excel 開啟中！")
+                logger.info("👉 請關閉該檔案，然後按 [Enter] 鍵重試...")
+                input()  # 等待用戶輸入，但不輸出到終端（通過 logger 已記錄）
                 logger.info("🔄 使用者嘗試重試歸檔...")
             except Exception as e:
                 logger.error(f"❌ 歸檔失敗 (未知錯誤): {e}")
@@ -196,7 +190,15 @@ class ReceiptCleaner:
         
         return None, "New Supplier"
 
-    def process(self, df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    def process(self, df: pd.DataFrame) -> Tuple[Optional[pd.DataFrame], str]:
+        """
+        處理收據數據
+        
+        Returns:
+            Tuple[Optional[pd.DataFrame], str]: 
+            - DataFrame: 清洗後的數據，如果處理失敗則返回 None
+            - str: 識別到的供應商名稱，如果無法識別則返回空字串
+        """
         # 1. 識別
         supplier_config, supplier_name = self.identify_supplier_by_columns(df.columns)
         
@@ -206,14 +208,14 @@ class ReceiptCleaner:
         else:
             logger.warning("   ⚠️ 無法識別供應商 (欄位特徵不符)")
             logger.info(f"      收據欄位: {list(df.columns)}")
-            return None # 直接返回 None，不繼續處理
+            return None, "" # 直接返回 None，不繼續處理
 
         # 3. 檢查必要欄位
         required_cols = ["貨品條碼", "入貨價", "入貨量", "貨品名稱"]
         missing = [c for c in required_cols if c not in df.columns]
         if missing:
             logger.error(f"❌ 缺少必要欄位: {missing}")
-            return None
+            return None, supplier_name
 
         df = df[required_cols].copy()
         
@@ -234,7 +236,7 @@ class ReceiptCleaner:
             df['入貨價'] = df['入貨價'].round(2)
 
         # 6. 補齊欄位
-        df['供應商名稱'] = ''
+        df['供應商名稱'] = supplier_name  # 填入識別到的供應商名稱
         df['店號'] = 'S1'
         df['入貨日期'] = datetime.now().strftime('%Y%m%d')
         df['收據單號'] = ''
@@ -244,7 +246,7 @@ class ReceiptCleaner:
         df['貨品編號'] = df['貨品條碼']
 
         df = df[ (df['貨品條碼'] != '') & (df['貨品條碼'] != 'nan') & (df['入貨量'] > 0) ]
-        return df
+        return df, supplier_name
 
     def _rename_columns_strict(self, df: pd.DataFrame, config: pd.Series) -> pd.DataFrame:
         """根據設定檔精確改名"""
@@ -266,6 +268,120 @@ class ReceiptCleaner:
                 new_columns[col] = reverse_map[str(col).strip().lower()]
         
         return df.rename(columns=new_columns)
+
+
+# --- 產品驗證器 ---
+class ProductValidator:
+    def __init__(self, stock_csv_path: str):
+        """
+        初始化產品驗證器，讀取 POS 庫存記錄
+        
+        Args:
+            stock_csv_path: DetailGoodsStockToday.csv 的路徑
+        """
+        self.stock_csv_path = Path(stock_csv_path)
+        self.productcode_set = set()
+        self.barcode_set = set()
+        self._load_stock_data()
+    
+    def _load_stock_data(self):
+        """讀取庫存 CSV 並建立查找集合"""
+        if not self.stock_csv_path.exists():
+            logger.warning(f"⚠️ 庫存檔案不存在: {self.stock_csv_path}")
+            return
+        
+        try:
+            # 讀取 CSV，使用字串類型避免格式問題
+            df = pd.read_csv(self.stock_csv_path, dtype=str, encoding='utf-8-sig')
+            
+            # 提取 ProductCode 和 Barcode 欄位
+            if 'ProductCode' in df.columns:
+                # 清洗並轉換為集合：去除空白、處理 .0 結尾、過濾空值
+                productcodes = df['ProductCode'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True)
+                self.productcode_set = {code for code in productcodes if code and code.lower() != 'nan'}
+            
+            if 'Barcode' in df.columns:
+                # 清洗並轉換為集合：去除空白、處理 .0 結尾、過濾空值
+                barcodes = df['Barcode'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True)
+                self.barcode_set = {code for code in barcodes if code and code.lower() != 'nan'}
+            
+            logger.info(f"✅ 已載入庫存記錄: ProductCode {len(self.productcode_set)} 筆, Barcode {len(self.barcode_set)} 筆")
+            
+        except Exception as e:
+            logger.error(f"❌ 讀取庫存檔案失敗: {e}")
+    
+    def validate_products(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        驗證產品是否存在於 POS 系統中
+        
+        Args:
+            df: 清洗後的收據 DataFrame，必須包含「貨品條碼」欄位
+        
+        Returns:
+            Tuple[pd.DataFrame, pd.DataFrame]: 
+            - matched_df: 找到 ProductCode 對應的記錄（正常處理）
+            - unmatched_df: 找不到對應的記錄，包含「處理原因」欄位
+        """
+        if df.empty or '貨品條碼' not in df.columns:
+            return pd.DataFrame(), pd.DataFrame()
+        
+        # 複製 DataFrame 以避免修改原始資料
+        df = df.copy()
+        
+        # 準備比對用的條碼（清洗格式）
+        df['_barcode_clean'] = df['貨品條碼'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True)
+        
+        # 初始化匹配狀態和原因字典
+        matched_mask = pd.Series([False] * len(df), index=df.index)
+        reason_dict = {}  # 使用字典儲存每個索引對應的原因
+        
+        # 統計用
+        matched_count = 0
+        barcode_only_count = 0
+        unmatched_count = 0
+        
+        for idx, row in df.iterrows():
+            barcode = row['_barcode_clean']
+            
+            # 跳過空值
+            if not barcode or barcode.lower() == 'nan':
+                continue
+            
+            # 情況1: 找到 ProductCode（完全匹配）
+            if barcode in self.productcode_set:
+                matched_mask[idx] = True
+                matched_count += 1
+            # 情況2: 只找到 Barcode（部分匹配）
+            elif barcode in self.barcode_set:
+                reason_dict[idx] = '共用條碼，需人手選擇顏色或大小'
+                barcode_only_count += 1
+            # 情況3: 完全找不到
+            else:
+                reason_dict[idx] = '可能是條碼錯誤或新貨品'
+                unmatched_count += 1
+        
+        # 分離數據
+        matched_df = df[matched_mask].copy()
+        unmatched_df = df[~matched_mask].copy()
+        
+        # 移除臨時欄位
+        if '_barcode_clean' in matched_df.columns:
+            matched_df = matched_df.drop(columns=['_barcode_clean'])
+        if '_barcode_clean' in unmatched_df.columns:
+            unmatched_df = unmatched_df.drop(columns=['_barcode_clean'])
+        
+        # 為 unmatched_df 加入處理原因欄位
+        if not unmatched_df.empty:
+            # 使用索引對應的原因
+            unmatched_df['處理原因'] = unmatched_df.index.map(reason_dict).fillna('')
+        
+        # 記錄統計
+        logger.info(f"   📊 產品驗證結果:")
+        logger.info(f"      ✅ 找到 ProductCode: {matched_count} 筆")
+        logger.info(f"      ⚠️ 只找到 Barcode: {barcode_only_count} 筆")
+        logger.info(f"      ❌ 完全找不到: {unmatched_count} 筆")
+        
+        return matched_df, unmatched_df
 
 
 # --- 檔案輸出器 ---
@@ -346,6 +462,61 @@ class ReceiptExporter:
         
         workbook.save(str(save_path))
         logger.info(f"   💾 POS 匯入檔: {filename}")
+    
+    def save_unmatched_excel(self, df: pd.DataFrame, supplier_name: str, base_dir: str = "workspace"):
+        """
+        將找不到對應的產品存成待處理 Excel 檔 (.xlsx)
+        
+        Args:
+            df: 包含「處理原因」欄位的待處理 DataFrame
+            supplier_name: 識別到的供應商名稱
+            base_dir: 工作目錄
+        """
+        if df.empty:
+            return
+        
+        # 確保 pending 資料夾存在
+        pending_dir = Path(base_dir) / "pending"
+        pending_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 準備輸出欄位順序（包含處理原因）
+        output_columns = [
+            '貨品條碼', '貨品名稱', '入貨價', '入貨量',
+            '供應商名稱', '店號', '入貨日期', '收據單號', 
+            '供應商編號', '備註', '狀態', '貨品編號', '處理原因'
+        ]
+        
+        # 確保所有欄位都存在
+        for col in output_columns:
+            if col not in df.columns:
+                df[col] = ''
+        
+        # 按照指定順序排列欄位
+        df_export = df[output_columns].copy()
+        
+        # 存檔 - 使用新格式：{供應商名稱}需要人手處理{日期}.xlsx
+        date_str = datetime.now().strftime("%Y%m%d")
+        # 清理供應商名稱，移除可能導致檔案名問題的字元
+        safe_supplier_name = supplier_name.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+        filename = f"{safe_supplier_name}需要人手處理{date_str}.xlsx"
+        save_path = pending_dir / filename
+        
+        try:
+            # 使用 pandas 的 to_excel 輸出 .xlsx 格式
+            df_export.to_excel(save_path, index=False, engine='openpyxl')
+            logger.info(f"   📋 待處理檔: {filename}")
+            logger.info(f"      原因統計: {df_export['處理原因'].value_counts().to_dict()}")
+        except ImportError:
+            # 如果沒有 openpyxl，嘗試使用 xlsxwriter
+            try:
+                df_export.to_excel(save_path, index=False, engine='xlsxwriter')
+                logger.info(f"   📋 待處理檔: {filename}")
+                logger.info(f"      原因統計: {df_export['處理原因'].value_counts().to_dict()}")
+            except ImportError:
+                logger.error("❌ 需要安裝 openpyxl 或 xlsxwriter 才能輸出 .xlsx 格式")
+                logger.info("   請執行: pip install openpyxl")
+        except Exception as e:
+            logger.error(f"❌ 儲存待處理檔失敗: {e}")
 
 def main():
 
@@ -358,12 +529,14 @@ def main():
     cleaner = ReceiptCleaner(config_df)
     exporter = ReceiptExporter(base_dir)
 
+    # 讀取並驗證庫存數據源
     input_stock = "data/processed/DetailGoodsStockToday.csv"
     if not os.path.exists(input_stock):
         logger.error("❌ 錯誤: 找不到數據源。")
         return
     
-
+    # 建立產品驗證器
+    validator = ProductValidator(input_stock)
 
     logger.info("🚀 開始批次處理...")
     
@@ -379,24 +552,38 @@ def main():
     # 若 Config 沒東西，給個基本預設值以免程式跑不動
     if not search_keywords:
         logger.warning("⚠️ Config 中無關鍵字，請設定供應商設定檔！")
+        return
 
-        # 2. 開始跑檔案
-        for file_path in loader.get_pending_files():
-            raw_header_df, raw_data_df = loader.smart_load(file_path, search_keywords)
+    # 2. 開始跑檔案
+    for file_path in loader.get_pending_files():
+        raw_header_df, raw_data_df = loader.smart_load(file_path, search_keywords)
+        
+        if not raw_data_df.empty:
+            clean_df, supplier_name = cleaner.process(raw_data_df)
             
-            if not raw_data_df.empty:
-                clean_df = cleaner.process(raw_data_df)
+            if clean_df is not None:
+                # 產品驗證：分離有對應和找不到的產品
+                matched_df, unmatched_df = validator.validate_products(clean_df)
                 
-                if clean_df is not None:
-                    # 輸出 POS 專用 Excel
-                    exporter.save_pos_excel(clean_df, file_path.name)
-                    
-                    loader.archive_file(file_path)
-                else:
-                    logger.error("   ❌ 清洗失敗 (未識別或格式錯誤)")
-            
-        print("-" * 30)
-    input("按 Enter 鍵結束程式...")
+                # 處理有對應的產品（正常匯出 POS 檔）
+                if not matched_df.empty:
+                    exporter.save_pos_excel(matched_df, file_path.name)
+                    logger.info(f"   ✅ 已匯出 {len(matched_df)} 筆產品到 POS 匯入檔")
+                
+                # 處理找不到對應的產品（存待處理檔）
+                if not unmatched_df.empty:
+                    exporter.save_unmatched_excel(unmatched_df, supplier_name, base_dir)
+                    logger.info(f"   ⚠️ 已標記 {len(unmatched_df)} 筆產品待人工處理")
+                
+                # 所有處理過的原始收據都歸檔到 processed
+                loader.archive_file(file_path)
+                logger.info(f"   📦 原始收據已歸檔")
+            else:
+                logger.error("   ❌ 清洗失敗 (未識別或格式錯誤)")
+        
+    logger.info("-" * 30)
+    logger.info("程式執行完成，等待用戶確認...")
+
 # --- 主程式 ---
 if __name__ == "__main__":
     main()
