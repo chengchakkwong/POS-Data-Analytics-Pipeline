@@ -55,6 +55,120 @@ class ConfigManager:
         df.to_excel(self.settings_file, index=False)
 
 
+# --- Mapping 管理器 ---
+class MappingManager:
+    def __init__(self, base_dir: Path):
+        """
+        管理條碼到貨品編號的映射關係
+        
+        Args:
+            base_dir: 工作目錄路徑
+        """
+        self.settings_dir = base_dir / "settings"
+        self.mapping_file = self.settings_dir / "barcode_mapping.xlsx"
+        self.settings_dir.mkdir(parents=True, exist_ok=True)
+        self.mapping_df = self.load_mapping()
+    
+    def load_mapping(self) -> pd.DataFrame:
+        """讀取現有的 mapping"""
+        if not self.mapping_file.exists():
+            # 建立空的 mapping 檔案
+            df = pd.DataFrame(columns=['貨品條碼', '貨品名稱', '貨品編號', '供應商名稱', '建立日期'])
+            df.to_excel(self.mapping_file, index=False)
+            logger.info(f"📝 建立新的 mapping 檔案: {self.mapping_file}")
+            return df
+        
+        try:
+            df = pd.read_excel(self.mapping_file)
+            # 確保欄位都是字串，並去除前後空白
+            df = df.astype(str).apply(lambda x: x.str.strip())
+            logger.info(f"✅ 已載入 mapping 記錄: {len(df)} 筆")
+            return df
+        except Exception as e:
+            logger.error(f"❌ 讀取 mapping 檔案失敗: {e}")
+            return pd.DataFrame(columns=['貨品條碼', '貨品名稱', '貨品編號', '供應商名稱', '建立日期'])
+    
+    def find_mapping(self, barcode: str, product_name: str) -> Optional[str]:
+        """
+        查找是否有對應的 mapping
+        
+        Args:
+            barcode: 貨品條碼
+            product_name: 貨品名稱
+        
+        Returns:
+            對應的貨品編號，如果找不到則返回 None
+        """
+        if self.mapping_df.empty:
+            return None
+        
+        # 清洗條碼格式（與驗證邏輯一致）
+        barcode_clean = pd.Series([str(barcode)]).str.strip().str.replace(r'\.0+$', '', regex=True).iloc[0]
+        product_name_clean = str(product_name).strip()
+        
+        # 查找匹配的記錄
+        mask = (
+            (self.mapping_df['貨品條碼'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True) == barcode_clean) &
+            (self.mapping_df['貨品名稱'].astype(str).str.strip() == product_name_clean)
+        )
+        
+        matched = self.mapping_df[mask]
+        if not matched.empty:
+            product_code = matched.iloc[0]['貨品編號']
+            logger.debug(f"   🔍 找到 mapping: {barcode_clean} -> {product_code}")
+            return str(product_code).strip()
+        
+        return None
+    
+    def add_mapping(self, barcode: str, product_name: str, product_code: str, supplier_name: str = ""):
+        """
+        新增 mapping 記錄
+        
+        Args:
+            barcode: 貨品條碼
+            product_name: 貨品名稱
+            product_code: 貨品編號
+            supplier_name: 供應商名稱
+        """
+        # 檢查是否已存在
+        barcode_clean = pd.Series([str(barcode)]).str.strip().str.replace(r'\.0+$', '', regex=True).iloc[0]
+        product_name_clean = str(product_name).strip()
+        
+        mask = (
+            (self.mapping_df['貨品條碼'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True) == barcode_clean) &
+            (self.mapping_df['貨品名稱'].astype(str).str.strip() == product_name_clean)
+        )
+        
+        if mask.any():
+            # 更新現有記錄
+            self.mapping_df.loc[mask, '貨品編號'] = str(product_code).strip()
+            self.mapping_df.loc[mask, '供應商名稱'] = str(supplier_name).strip()
+            self.mapping_df.loc[mask, '建立日期'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            logger.info(f"   📝 更新 mapping: {barcode_clean} -> {product_code}")
+        else:
+            # 新增記錄
+            new_row = {
+                '貨品條碼': barcode_clean,
+                '貨品名稱': product_name_clean,
+                '貨品編號': str(product_code).strip(),
+                '供應商名稱': str(supplier_name).strip(),
+                '建立日期': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            self.mapping_df = pd.concat([self.mapping_df, pd.DataFrame([new_row])], ignore_index=True)
+            logger.info(f"   ➕ 新增 mapping: {barcode_clean} -> {product_code}")
+        
+        # 儲存到檔案
+        self.save_mapping()
+    
+    def save_mapping(self):
+        """儲存 mapping 到檔案"""
+        try:
+            self.mapping_df.to_excel(self.mapping_file, index=False)
+            logger.debug(f"💾 Mapping 已儲存: {len(self.mapping_df)} 筆")
+        except Exception as e:
+            logger.error(f"❌ 儲存 mapping 失敗: {e}")
+
+
 # --- 讀取器 ---
 class BatchReceiptLoader:
     def __init__(self, base_dir: str = "workspace"):
@@ -272,16 +386,19 @@ class ReceiptCleaner:
 
 # --- 產品驗證器 ---
 class ProductValidator:
-    def __init__(self, stock_csv_path: str):
+    def __init__(self, stock_csv_path: str, mapping_manager: Optional['MappingManager'] = None):
         """
         初始化產品驗證器，讀取 POS 庫存記錄
         
         Args:
             stock_csv_path: DetailGoodsStockToday.csv 的路徑
+            mapping_manager: MappingManager 實例，用於檢查已記錄的 mapping
         """
         self.stock_csv_path = Path(stock_csv_path)
         self.productcode_set = set()
         self.barcode_set = set()
+        self.mapping_manager = mapping_manager
+        self.stock_df = None  # 儲存完整的庫存數據，用於查找共用條碼的選項
         self._load_stock_data()
     
     def _load_stock_data(self):
@@ -293,6 +410,7 @@ class ProductValidator:
         try:
             # 讀取 CSV，使用字串類型避免格式問題
             df = pd.read_csv(self.stock_csv_path, dtype=str, encoding='utf-8-sig')
+            self.stock_df = df  # 儲存完整數據
             
             # 提取 ProductCode 和 Barcode 欄位
             if 'ProductCode' in df.columns:
@@ -310,12 +428,41 @@ class ProductValidator:
         except Exception as e:
             logger.error(f"❌ 讀取庫存檔案失敗: {e}")
     
-    def validate_products(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def get_barcode_options(self, barcode: str) -> List[Dict[str, str]]:
+        """
+        獲取共用條碼對應的所有 ProductCode 選項
+        
+        Args:
+            barcode: 條碼
+        
+        Returns:
+            列表，每個元素包含 ProductCode 和 Name
+        """
+        if self.stock_df is None or 'Barcode' not in self.stock_df.columns:
+            return []
+        
+        barcode_clean = pd.Series([str(barcode)]).str.strip().str.replace(r'\.0+$', '', regex=True).iloc[0]
+        
+        # 查找所有匹配的記錄
+        mask = self.stock_df['Barcode'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True) == barcode_clean
+        matched = self.stock_df[mask]
+        
+        options = []
+        for _, row in matched.iterrows():
+            product_code = str(row.get('ProductCode', '')).strip()
+            name = str(row.get('Name', '')).strip()
+            if product_code and product_code.lower() != 'nan':
+                options.append({'ProductCode': product_code, 'Name': name})
+        
+        return options
+    
+    def validate_products(self, df: pd.DataFrame, supplier_name: str = "") -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         驗證產品是否存在於 POS 系統中
         
         Args:
             df: 清洗後的收據 DataFrame，必須包含「貨品條碼」欄位
+            supplier_name: 供應商名稱，用於 mapping 查找
         
         Returns:
             Tuple[pd.DataFrame, pd.DataFrame]: 
@@ -336,16 +483,29 @@ class ProductValidator:
         reason_dict = {}  # 使用字典儲存每個索引對應的原因
         
         # 統計用
+        mapping_count = 0
         matched_count = 0
         barcode_only_count = 0
         unmatched_count = 0
         
         for idx, row in df.iterrows():
             barcode = row['_barcode_clean']
+            product_name = str(row.get('貨品名稱', '')).strip()
             
             # 跳過空值
             if not barcode or barcode.lower() == 'nan':
                 continue
+            
+            # 優先檢查 mapping（如果有的話）
+            if self.mapping_manager:
+                mapped_product_code = self.mapping_manager.find_mapping(barcode, product_name)
+                if mapped_product_code:
+                    # 找到 mapping，直接使用
+                    matched_mask[idx] = True
+                    # 更新貨品編號
+                    df.loc[idx, '貨品編號'] = mapped_product_code
+                    mapping_count += 1
+                    continue
             
             # 情況1: 找到 ProductCode（完全匹配）
             if barcode in self.productcode_set:
@@ -377,6 +537,8 @@ class ProductValidator:
         
         # 記錄統計
         logger.info(f"   📊 產品驗證結果:")
+        if mapping_count > 0:
+            logger.info(f"      🔄 使用 Mapping: {mapping_count} 筆")
         logger.info(f"      ✅ 找到 ProductCode: {matched_count} 筆")
         logger.info(f"      ⚠️ 只找到 Barcode: {barcode_only_count} 筆")
         logger.info(f"      ❌ 完全找不到: {unmatched_count} 筆")
@@ -463,13 +625,14 @@ class ReceiptExporter:
         workbook.save(str(save_path))
         logger.info(f"   💾 POS 匯入檔: {filename}")
     
-    def save_unmatched_excel(self, df: pd.DataFrame, supplier_name: str, base_dir: str = "workspace"):
+    def save_unmatched_excel(self, df: pd.DataFrame, supplier_name: str, validator: Optional['ProductValidator'] = None, base_dir: str = "workspace"):
         """
         將找不到對應的產品存成待處理 Excel 檔 (.xlsx)
         
         Args:
             df: 包含「處理原因」欄位的待處理 DataFrame
             supplier_name: 識別到的供應商名稱
+            validator: ProductValidator 實例，用於獲取共用條碼的選項
             base_dir: 工作目錄
         """
         if df.empty:
@@ -479,20 +642,46 @@ class ReceiptExporter:
         pending_dir = Path(base_dir) / "pending"
         pending_dir.mkdir(parents=True, exist_ok=True)
         
-        # 準備輸出欄位順序（包含處理原因）
+        # 簡化輸出欄位
         output_columns = [
-            '貨品條碼', '貨品名稱', '入貨價', '入貨量',
-            '供應商名稱', '店號', '入貨日期', '收據單號', 
-            '供應商編號', '備註', '狀態', '貨品編號', '處理原因'
+            '貨品條碼', '貨品名稱', '入貨價', '入貨量', '處理原因', '人手輸入貨品編號'
         ]
         
-        # 確保所有欄位都存在
-        for col in output_columns:
-            if col not in df.columns:
-                df[col] = ''
+        # 準備輸出 DataFrame
+        # 確保基本欄位存在
+        base_cols = ['貨品條碼', '貨品名稱', '入貨價', '入貨量']
+        missing_base_cols = [col for col in base_cols if col not in df.columns]
+        if missing_base_cols:
+            logger.error(f"❌ 待處理檔缺少基本欄位: {missing_base_cols}")
+            logger.error(f"   現有欄位: {list(df.columns)}")
+            logger.error(f"   DataFrame 行數: {len(df)}")
+            raise ValueError(f"缺少基本欄位: {missing_base_cols}")
         
-        # 按照指定順序排列欄位
-        df_export = df[output_columns].copy()
+        # 檢查 DataFrame 是否為空（在檢查欄位後）
+        if len(df) == 0:
+            logger.warning("⚠️ DataFrame 為空，無法保存")
+            return
+        
+        df_export = df[base_cols].copy()
+        logger.debug(f"   準備保存 {len(df_export)} 筆記錄")
+        
+        # 保留或新增「處理原因」欄位
+        if '處理原因' in df.columns:
+            df_export['處理原因'] = df['處理原因']
+            logger.debug(f"   已保留「處理原因」欄位")
+        else:
+            df_export['處理原因'] = ''
+            logger.debug(f"   新增「處理原因」欄位（空值）")
+        
+        # 「人手輸入貨品編號」欄位：如果是重新保存未填寫的記錄，確保是空白
+        # 檢查是否有已填寫的值，如果有則清空（因為這些是未填寫的記錄）
+        if '人手輸入貨品編號' in df.columns:
+            # 只保留真正為空的記錄（未填寫的）
+            df_export['人手輸入貨品編號'] = ''
+            logger.debug(f"   已保留「人手輸入貨品編號」欄位（設為空）")
+        else:
+            df_export['人手輸入貨品編號'] = ''  # 空白欄位，供人工填寫
+            logger.debug(f"   新增「人手輸入貨品編號」欄位（空值）")
         
         # 存檔 - 使用新格式：{供應商名稱}需要人手處理{日期}.xlsx
         date_str = datetime.now().strftime("%Y%m%d")
@@ -502,14 +691,66 @@ class ReceiptExporter:
         save_path = pending_dir / filename
         
         try:
-            # 使用 pandas 的 to_excel 輸出 .xlsx 格式
+            # 先使用 pandas 輸出基本數據
+            logger.debug(f"   正在保存到: {save_path}")
             df_export.to_excel(save_path, index=False, engine='openpyxl')
+            logger.debug(f"   基本數據已保存，共 {len(df_export)} 筆記錄")
+            
+            # 使用 openpyxl 添加註解
+            try:
+                from openpyxl import load_workbook
+                from openpyxl.comments import Comment
+                
+                wb = load_workbook(save_path)
+                ws = wb.active
+                
+                # 找到「人手輸入貨品編號」欄位的索引
+                product_code_col_idx = output_columns.index('人手輸入貨品編號') + 1  # Excel 從 1 開始
+                
+                # 為每一行添加註解（如果是共用條碼）
+                # 使用 enumerate 來獲取實際的行號（從 0 開始，對應 Excel 的第 2 行開始，因為第 1 行是標題）
+                comment_count = 0
+                for excel_row_idx, (df_idx, row) in enumerate(df_export.iterrows(), start=2):
+                    barcode = str(row.get('貨品條碼', '')).strip()
+                    reason = str(row.get('處理原因', '')).strip()
+                    
+                    # 如果是共用條碼，添加選項註解
+                    if reason == '共用條碼，需人手選擇顏色或大小' and validator:
+                        options = validator.get_barcode_options(barcode)
+                        if options:
+                            # 建立註解內容
+                            comment_text = "可選的貨品編號：\n"
+                            for opt in options:
+                                product_code = opt.get('ProductCode', '')
+                                name = opt.get('Name', '')
+                                comment_text += f"- {product_code}: {name}\n"
+                            
+                            # 添加註解到對應的儲存格（excel_row_idx 已經是正確的行號，從 2 開始）
+                            cell = ws.cell(row=excel_row_idx, column=product_code_col_idx)
+                            cell.comment = Comment(comment_text, "系統")
+                            cell.comment.width = 300
+                            cell.comment.height = 100
+                            comment_count += 1
+                
+                wb.save(save_path)
+                if comment_count > 0:
+                    logger.debug(f"   已添加 {comment_count} 個註解")
+                logger.info(f"   📋 待處理檔: {filename} (已加入註解)")
+            except ImportError:
+                logger.warning("   ⚠️ 無法添加註解（需要 openpyxl），但檔案已儲存")
+            except Exception as e:
+                logger.warning(f"   ⚠️ 添加註解時發生錯誤: {e}，但檔案已儲存")
+            
             logger.info(f"   📋 待處理檔: {filename}")
-            logger.info(f"      原因統計: {df_export['處理原因'].value_counts().to_dict()}")
+            if '處理原因' in df_export.columns:
+                reason_counts = df_export['處理原因'].value_counts().to_dict()
+                logger.info(f"      原因統計: {reason_counts}")
+            logger.info(f"      檔案路徑: {save_path}")
         except ImportError:
-            # 如果沒有 openpyxl，嘗試使用 xlsxwriter
+            # 如果沒有 openpyxl，嘗試使用 xlsxwriter（但無法添加註解）
             try:
                 df_export.to_excel(save_path, index=False, engine='xlsxwriter')
+                logger.warning("   ⚠️ 使用 xlsxwriter 儲存（無法添加註解），建議安裝 openpyxl")
                 logger.info(f"   📋 待處理檔: {filename}")
                 logger.info(f"      原因統計: {df_export['處理原因'].value_counts().to_dict()}")
             except ImportError:
@@ -517,6 +758,99 @@ class ReceiptExporter:
                 logger.info("   請執行: pip install openpyxl")
         except Exception as e:
             logger.error(f"❌ 儲存待處理檔失敗: {e}")
+            logger.error(f"   檔案路徑: {save_path}")
+            logger.error(f"   資料筆數: {len(df_export)}")
+            raise  # 重新拋出異常，讓主流程的 try-except 能捕獲
+    
+    def process_manual_excel(self, file_path: Path, mapping_manager: 'MappingManager', validator: 'ProductValidator', base_dir: str = "workspace") -> Tuple[pd.DataFrame, int, pd.DataFrame]:
+        """
+        處理人工填寫的待處理 Excel 檔案
+        
+        Args:
+            file_path: 待處理 Excel 檔案路徑
+            mapping_manager: MappingManager 實例
+            validator: ProductValidator 實例
+            base_dir: 工作目錄
+        
+        Returns:
+            Tuple[pd.DataFrame, int, pd.DataFrame]: 
+            - 處理後的 DataFrame（已填寫的記錄）
+            - 新增的 mapping 數量
+            - 未填寫的 DataFrame（需要保留的記錄）
+        """
+        try:
+            # 讀取 Excel
+            df = pd.read_excel(file_path, dtype=str, engine='openpyxl')
+            
+            # 檢查必要欄位
+            required_cols = ['貨品條碼', '貨品名稱', '人手輸入貨品編號']
+            missing = [c for c in required_cols if c not in df.columns]
+            if missing:
+                logger.error(f"❌ 待處理檔缺少必要欄位: {missing}")
+                return pd.DataFrame(), 0, pd.DataFrame()
+            
+            # 分離已填寫和未填寫的記錄
+            filled_mask = (
+                (df['人手輸入貨品編號'].astype(str).str.strip() != '') &
+                (df['人手輸入貨品編號'].astype(str).str.strip().str.lower() != 'nan')
+            )
+            df_filled = df[filled_mask].copy()
+            df_unfilled = df[~filled_mask].copy()
+            
+            if df_filled.empty:
+                logger.warning(f"   ⚠️ {file_path.name}: 沒有已填寫的記錄")
+                return pd.DataFrame(), 0, df_unfilled
+            
+            # 從檔名提取供應商名稱
+            supplier_name = file_path.stem.split('需要人手處理')[0] if '需要人手處理' in file_path.stem else ''
+            
+            # 將填寫的記錄加入 mapping
+            mapping_count = 0
+            processed_rows = []
+            
+            for idx, row in df_filled.iterrows():
+                barcode = str(row['貨品條碼']).strip()
+                product_name = str(row['貨品名稱']).strip()
+                product_code = str(row['人手輸入貨品編號']).strip()
+                
+                if barcode and product_name and product_code:
+                    mapping_manager.add_mapping(barcode, product_name, product_code, supplier_name)
+                    mapping_count += 1
+                    
+                    # 準備處理後的資料
+                    processed_row = {
+                        '貨品條碼': barcode,
+                        '貨品名稱': product_name,
+                        '入貨價': str(row.get('入貨價', '0')).strip(),
+                        '入貨量': str(row.get('入貨量', '0')).strip(),
+                        '貨品編號': product_code,
+                        '供應商名稱': supplier_name,
+                        '店號': 'S1',
+                        '入貨日期': datetime.now().strftime('%Y%m%d'),
+                        '收據單號': '',
+                        '供應商編號': '001',
+                        '備註': '',
+                        '狀態': ''
+                    }
+                    processed_rows.append(processed_row)
+            
+            if processed_rows:
+                processed_df = pd.DataFrame(processed_rows)
+                # 轉換數值欄位
+                processed_df['入貨價'] = pd.to_numeric(processed_df['入貨價'], errors='coerce').fillna(0)
+                processed_df['入貨量'] = pd.to_numeric(processed_df['入貨量'], errors='coerce').fillna(0).astype(int)
+                processed_df = processed_df[processed_df['入貨量'] > 0]
+                
+                logger.info(f"   ✅ 已處理 {len(processed_df)} 筆產品，新增 {mapping_count} 筆 mapping")
+                if not df_unfilled.empty:
+                    logger.info(f"   ⚠️ 還有 {len(df_unfilled)} 筆未填寫的記錄需要保留")
+                return processed_df, mapping_count, df_unfilled
+            else:
+                return pd.DataFrame(), 0, df_unfilled
+                
+        except Exception as e:
+            logger.error(f"❌ 處理待處理檔失敗: {e}")
+            return pd.DataFrame(), 0, pd.DataFrame()
 
 def main():
 
@@ -524,6 +858,9 @@ def main():
     # 1. 讀取設定
     config_mgr = ConfigManager(Path(base_dir))
     config_df = config_mgr.load_config()
+    
+    # 建立 Mapping 管理器
+    mapping_mgr = MappingManager(Path(base_dir))
     
     loader = BatchReceiptLoader(base_dir)
     cleaner = ReceiptCleaner(config_df)
@@ -535,8 +872,8 @@ def main():
         logger.error("❌ 錯誤: 找不到數據源。")
         return
     
-    # 建立產品驗證器
-    validator = ProductValidator(input_stock)
+    # 建立產品驗證器（傳入 mapping_manager）
+    validator = ProductValidator(input_stock, mapping_mgr)
 
     logger.info("🚀 開始批次處理...")
     
@@ -554,16 +891,54 @@ def main():
         logger.warning("⚠️ Config 中無關鍵字，請設定供應商設定檔！")
         return
 
-    # 2. 開始跑檔案
+    # 2. 先處理待處理檔案（人工填寫的）
+    logger.info("📋 檢查待處理檔案...")
+    manual_files = [f for f in loader.get_pending_files() if '需要人手處理' in f.stem]
+    for file_path in manual_files:
+        logger.info(f"📝 處理待處理檔: {file_path.name}")
+        processed_df, mapping_count, unfilled_df = exporter.process_manual_excel(file_path, mapping_mgr, validator, base_dir)
+        
+        if not processed_df.empty:
+            # 有已填寫記錄 → 需要處理
+            # 匯出到 POS 檔
+            exporter.save_pos_excel(processed_df, file_path.name)
+            logger.info(f"   ✅ 已匯出 {len(processed_df)} 筆產品到 POS 匯入檔")
+            
+            # 處理未填寫的記錄
+            if not unfilled_df.empty:
+                # 有未填寫的記錄，重新保存
+                supplier_name = file_path.stem.split('需要人手處理')[0] if '需要人手處理' in file_path.stem else ''
+                try:
+                    exporter.save_unmatched_excel(unfilled_df, supplier_name, validator, base_dir)
+                    logger.info(f"   📋 已更新待處理檔，保留 {len(unfilled_df)} 筆未填寫的記錄")
+                except Exception as e:
+                    logger.error(f"   ❌ 保存未填寫記錄失敗: {e}")
+                    logger.warning(f"   ⚠️ 保留原始待處理檔，未歸檔")
+                    continue  # 保存失敗時不歸檔，避免遺失資料
+            
+            # 無論是否有未填寫記錄，都歸檔原始檔（因為已經處理過了）
+            loader.archive_file(file_path)
+            logger.info(f"   📦 原始待處理檔已歸檔")
+        else:
+            # 沒有已填寫記錄 → 不用動，保留原檔案
+            logger.info(f"   ℹ️ {file_path.name}: 沒有已填寫的記錄，保留原檔案等待處理")
+            # 不歸檔，保留在 pending 中
+    
+    # 3. 處理收據檔案
+    logger.info("📄 處理收據檔案...")
     for file_path in loader.get_pending_files():
+        # 跳過待處理檔案（已經處理過了）
+        if '需要人手處理' in file_path.stem:
+            continue
+            
         raw_header_df, raw_data_df = loader.smart_load(file_path, search_keywords)
         
         if not raw_data_df.empty:
             clean_df, supplier_name = cleaner.process(raw_data_df)
             
             if clean_df is not None:
-                # 產品驗證：分離有對應和找不到的產品
-                matched_df, unmatched_df = validator.validate_products(clean_df)
+                # 產品驗證：分離有對應和找不到的產品（會自動檢查 mapping）
+                matched_df, unmatched_df = validator.validate_products(clean_df, supplier_name)
                 
                 # 處理有對應的產品（正常匯出 POS 檔）
                 if not matched_df.empty:
@@ -572,7 +947,7 @@ def main():
                 
                 # 處理找不到對應的產品（存待處理檔）
                 if not unmatched_df.empty:
-                    exporter.save_unmatched_excel(unmatched_df, supplier_name, base_dir)
+                    exporter.save_unmatched_excel(unmatched_df, supplier_name, validator, base_dir)
                     logger.info(f"   ⚠️ 已標記 {len(unmatched_df)} 筆產品待人工處理")
                 
                 # 所有處理過的原始收據都歸檔到 processed
@@ -581,9 +956,13 @@ def main():
             else:
                 logger.error("   ❌ 清洗失敗 (未識別或格式錯誤)")
         
-    logger.info("-" * 30)
     logger.info("程式執行完成，等待用戶確認...")
+    logger.info("-" * 30)
+
 
 # --- 主程式 ---
 if __name__ == "__main__":
     main()
+
+
+
