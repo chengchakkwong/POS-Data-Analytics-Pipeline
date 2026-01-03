@@ -903,6 +903,10 @@ def main():
             # 匯出到 POS 檔
             exporter.save_pos_excel(processed_df, file_path.name)
             logger.info(f"   ✅ 已匯出 {len(processed_df)} 筆產品到 POS 匯入檔")
+
+            loader.archive_file(file_path)
+            logger.info(f"   📦 原始待處理檔已歸檔")
+            # 無論是否有未填寫記錄，都歸檔原始檔（因為已經處理過了）
             
             # 處理未填寫的記錄
             if not unfilled_df.empty:
@@ -916,9 +920,8 @@ def main():
                     logger.warning(f"   ⚠️ 保留原始待處理檔，未歸檔")
                     continue  # 保存失敗時不歸檔，避免遺失資料
             
-            # 無論是否有未填寫記錄，都歸檔原始檔（因為已經處理過了）
-            loader.archive_file(file_path)
-            logger.info(f"   📦 原始待處理檔已歸檔")
+            
+
         else:
             # 沒有已填寫記錄 → 不用動，保留原檔案
             logger.info(f"   ℹ️ {file_path.name}: 沒有已填寫的記錄，保留原檔案等待處理")
