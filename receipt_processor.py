@@ -57,17 +57,19 @@ class ConfigManager:
 
 # --- Mapping 管理器 ---
 class MappingManager:
-    def __init__(self, base_dir: Path):
+    def __init__(self, base_dir: Path, validator: Optional['ProductValidator'] = None):
         """
         管理條碼到貨品編號的映射關係
         
         Args:
             base_dir: 工作目錄路徑
+            validator: ProductValidator 實例，用於檢查貨品編號是否存在於 POS 系統
         """
         self.settings_dir = base_dir / "settings"
         self.mapping_file = self.settings_dir / "barcode_mapping.xlsx"
         self.settings_dir.mkdir(parents=True, exist_ok=True)
         self.mapping_df = self.load_mapping()
+        self.validator = validator  # 用於檢查貨品編號是否存在於 POS 系統
     
     def load_mapping(self) -> pd.DataFrame:
         """讀取現有的 mapping"""
@@ -120,6 +122,28 @@ class MappingManager:
         
         return None
     
+    def check_product_code_exists(self, product_code: str) -> bool:
+        """
+        檢查貨品編號是否存在於 POS 系統中
+        
+        Args:
+            product_code: 貨品編號
+        
+        Returns:
+            bool: 是否存在於 POS 系統
+        """
+        if not self.validator:
+            # 如果沒有 validator，無法檢查，返回 True（假設存在，避免阻擋）
+            logger.warning("   ⚠️ 沒有 ProductValidator，無法檢查貨品編號是否存在於 POS 系統")
+            return True
+        
+        # 清洗貨品編號格式
+        product_code_clean = pd.Series([str(product_code)]).str.strip().str.replace(r'\.0+$', '', regex=True).iloc[0]
+        
+        # 檢查是否存在於 POS 系統的 ProductCode 集合中
+        exists = product_code_clean in self.validator.productcode_set
+        return exists
+    
     def add_mapping(self, barcode: str, product_name: str, product_code: str, supplier_name: str = ""):
         """
         新增 mapping 記錄
@@ -131,12 +155,19 @@ class MappingManager:
             supplier_name: 供應商名稱
         
         Returns:
-            bool: 是否成功新增/更新
+            Tuple[bool, Optional[str]]: (是否成功, 錯誤原因)
         """
         # 清洗輸入數據
         barcode_clean = pd.Series([str(barcode)]).str.strip().str.replace(r'\.0+$', '', regex=True).iloc[0]
         product_name_clean = str(product_name).strip()
         product_code_clean = str(product_code).strip()
+        
+        # 檢查貨品編號是否存在於 POS 系統
+        if not self.check_product_code_exists(product_code_clean):
+            error_msg = f"貨品編號 {product_code_clean} 不存在於 POS 系統 (DetailGoodsStockToday.csv)"
+            logger.error(f"   ❌ {error_msg}")
+            logger.error(f"      無法為條碼 {barcode_clean} 新增此 mapping")
+            return False, error_msg
         
         # 檢查貨品編號是否已被其他條碼使用（貨品編號不能重複）
         if not self.mapping_df.empty:
@@ -156,11 +187,12 @@ class MappingManager:
                 if not same_barcode_name_mask.any():
                     # 貨品編號已被其他條碼/貨品名稱使用，不允許重複
                     existing_record = existing_with_same_code.iloc[0]
+                    error_msg = f"貨品編號 {product_code_clean} 已被其他條碼使用 (條碼: {existing_record['貨品條碼']}, 貨品名稱: {existing_record['貨品名稱']})"
                     logger.error(f"   ❌ 貨品編號重複: {product_code_clean}")
                     logger.error(f"      此貨品編號已被使用:")
                     logger.error(f"      條碼: {existing_record['貨品條碼']}, 貨品名稱: {existing_record['貨品名稱']}")
                     logger.error(f"      無法為條碼 {barcode_clean} 新增此 mapping")
-                    return False
+                    return False, error_msg
         
         # 檢查是否已存在相同的條碼+貨品名稱組合
         mask = (
@@ -188,7 +220,7 @@ class MappingManager:
         
         # 儲存到檔案
         self.save_mapping()
-        return True
+        return True, None
     
     def save_mapping(self):
         """儲存 mapping 到檔案 (處理檔案被佔用問題)"""
@@ -847,6 +879,7 @@ class ReceiptExporter:
             # 將填寫的記錄加入 mapping
             mapping_count = 0
             processed_rows = []
+            failed_rows = []  # 收集失敗的記錄
             
             for idx, row in df_filled.iterrows():
                 barcode = str(row['貨品條碼']).strip()
@@ -854,8 +887,8 @@ class ReceiptExporter:
                 product_code = str(row['人手輸入貨品編號']).strip()
                 
                 if barcode and product_name and product_code:
-                    # 嘗試新增 mapping，檢查貨品編號是否重複
-                    success = mapping_manager.add_mapping(barcode, product_name, product_code, supplier_name)
+                    # 嘗試新增 mapping，檢查貨品編號是否重複或不存在於 POS
+                    success, error_msg = mapping_manager.add_mapping(barcode, product_name, product_code, supplier_name)
                     if success:
                         mapping_count += 1
                         
@@ -876,8 +909,25 @@ class ReceiptExporter:
                         }
                         processed_rows.append(processed_row)
                     else:
-                        # 貨品編號重複，跳過這筆記錄
-                        logger.warning(f"      跳過條碼 {barcode}，因為貨品編號 {product_code} 重複")
+                        # mapping 失敗，記錄錯誤原因並加入失敗列表
+                        failed_row = row.copy()
+                        failed_row['處理原因'] = error_msg if error_msg else '未知錯誤'
+                        failed_row['人手輸入貨品編號'] = ''  # 清空，讓用戶重新填寫
+                        failed_rows.append(failed_row)
+                        logger.warning(f"      跳過條碼 {barcode}，原因: {error_msg}")
+            
+            # 將失敗的記錄加入未填寫記錄中
+            if failed_rows:
+                failed_df = pd.DataFrame(failed_rows)
+                # 確保有「處理原因」欄位
+                if '處理原因' not in failed_df.columns:
+                    failed_df['處理原因'] = '未知錯誤'
+                # 確保 df_unfilled 也有「處理原因」欄位（如果原本沒有）
+                if not df_unfilled.empty and '處理原因' not in df_unfilled.columns:
+                    df_unfilled['處理原因'] = ''
+                # 合併到未填寫記錄中
+                df_unfilled = pd.concat([df_unfilled, failed_df], ignore_index=True)
+                logger.info(f"   ⚠️ {len(failed_rows)} 筆記錄因 mapping 失敗，已加入待處理列表")
             
             if processed_rows:
                 processed_df = pd.DataFrame(processed_rows)
@@ -904,9 +954,6 @@ def main():
     config_mgr = ConfigManager(Path(base_dir))
     config_df = config_mgr.load_config()
     
-    # 建立 Mapping 管理器
-    mapping_mgr = MappingManager(Path(base_dir))
-    
     loader = BatchReceiptLoader(base_dir)
     cleaner = ReceiptCleaner(config_df)
     exporter = ReceiptExporter(base_dir)
@@ -917,8 +964,14 @@ def main():
         logger.error("❌ 錯誤: 找不到數據源。")
         return
     
-    # 建立產品驗證器（傳入 mapping_manager）
-    validator = ProductValidator(input_stock, mapping_mgr)
+    # 先建立產品驗證器（不傳入 mapping_manager，避免循環依賴）
+    validator = ProductValidator(input_stock, None)
+    
+    # 建立 Mapping 管理器（傳入 validator 用於檢查貨品編號）
+    mapping_mgr = MappingManager(Path(base_dir), validator)
+    
+    # 更新 validator 的 mapping_manager（現在可以安全設置）
+    validator.mapping_manager = mapping_mgr
 
     logger.info("🚀 開始批次處理...")
     
