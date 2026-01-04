@@ -129,11 +129,40 @@ class MappingManager:
             product_name: 貨品名稱
             product_code: 貨品編號
             supplier_name: 供應商名稱
+        
+        Returns:
+            bool: 是否成功新增/更新
         """
-        # 檢查是否已存在
+        # 清洗輸入數據
         barcode_clean = pd.Series([str(barcode)]).str.strip().str.replace(r'\.0+$', '', regex=True).iloc[0]
         product_name_clean = str(product_name).strip()
+        product_code_clean = str(product_code).strip()
         
+        # 檢查貨品編號是否已被其他條碼使用（貨品編號不能重複）
+        if not self.mapping_df.empty:
+            existing_product_code_mask = (
+                self.mapping_df['貨品編號'].astype(str).str.strip() == product_code_clean
+            )
+            existing_with_same_code = self.mapping_df[existing_product_code_mask]
+            
+            # 檢查是否有其他條碼/貨品名稱已經使用這個貨品編號
+            if not existing_with_same_code.empty:
+                # 檢查是否是完全相同的條碼+貨品名稱組合（這種情況允許更新）
+                same_barcode_name_mask = (
+                    (existing_with_same_code['貨品條碼'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True) == barcode_clean) &
+                    (existing_with_same_code['貨品名稱'].astype(str).str.strip() == product_name_clean)
+                )
+                
+                if not same_barcode_name_mask.any():
+                    # 貨品編號已被其他條碼/貨品名稱使用，不允許重複
+                    existing_record = existing_with_same_code.iloc[0]
+                    logger.error(f"   ❌ 貨品編號重複: {product_code_clean}")
+                    logger.error(f"      此貨品編號已被使用:")
+                    logger.error(f"      條碼: {existing_record['貨品條碼']}, 貨品名稱: {existing_record['貨品名稱']}")
+                    logger.error(f"      無法為條碼 {barcode_clean} 新增此 mapping")
+                    return False
+        
+        # 檢查是否已存在相同的條碼+貨品名稱組合
         mask = (
             (self.mapping_df['貨品條碼'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True) == barcode_clean) &
             (self.mapping_df['貨品名稱'].astype(str).str.strip() == product_name_clean)
@@ -141,32 +170,42 @@ class MappingManager:
         
         if mask.any():
             # 更新現有記錄
-            self.mapping_df.loc[mask, '貨品編號'] = str(product_code).strip()
+            self.mapping_df.loc[mask, '貨品編號'] = product_code_clean
             self.mapping_df.loc[mask, '供應商名稱'] = str(supplier_name).strip()
             self.mapping_df.loc[mask, '建立日期'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            logger.info(f"   📝 更新 mapping: {barcode_clean} -> {product_code}")
+            logger.info(f"   📝 更新 mapping: {barcode_clean} -> {product_code_clean}")
         else:
             # 新增記錄
             new_row = {
                 '貨品條碼': barcode_clean,
                 '貨品名稱': product_name_clean,
-                '貨品編號': str(product_code).strip(),
+                '貨品編號': product_code_clean,
                 '供應商名稱': str(supplier_name).strip(),
                 '建立日期': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
             self.mapping_df = pd.concat([self.mapping_df, pd.DataFrame([new_row])], ignore_index=True)
-            logger.info(f"   ➕ 新增 mapping: {barcode_clean} -> {product_code}")
+            logger.info(f"   ➕ 新增 mapping: {barcode_clean} -> {product_code_clean}")
         
         # 儲存到檔案
         self.save_mapping()
+        return True
     
     def save_mapping(self):
-        """儲存 mapping 到檔案"""
-        try:
-            self.mapping_df.to_excel(self.mapping_file, index=False)
-            logger.debug(f"💾 Mapping 已儲存: {len(self.mapping_df)} 筆")
-        except Exception as e:
-            logger.error(f"❌ 儲存 mapping 失敗: {e}")
+        """儲存 mapping 到檔案 (處理檔案被佔用問題)"""
+        while True:
+            try:
+                self.mapping_df.to_excel(self.mapping_file, index=False)
+                logger.debug(f"💾 Mapping 已儲存: {len(self.mapping_df)} 筆")
+                break  # 成功儲存後跳出迴圈
+            except PermissionError:
+                logger.warning(f"⚠️ 無法儲存 mapping 檔案 (被佔用): {self.mapping_file.name}")
+                logger.error(f"🛑 錯誤：檔案 '{self.mapping_file.name}' 正被 Excel 開啟中！")
+                logger.info("👉 請關閉該檔案，然後按 [Enter] 鍵重試...")
+                input()  # 等待用戶輸入，但不輸出到終端（通過 logger 已記錄）
+                logger.info("🔄 使用者嘗試重試儲存 mapping...")
+            except Exception as e:
+                logger.error(f"❌ 儲存 mapping 失敗 (未知錯誤): {e}")
+                break  # 其他錯誤直接放棄，避免無窮迴圈
 
 
 # --- 讀取器 ---
@@ -683,11 +722,12 @@ class ReceiptExporter:
             df_export['人手輸入貨品編號'] = ''  # 空白欄位，供人工填寫
             logger.debug(f"   新增「人手輸入貨品編號」欄位（空值）")
         
-        # 存檔 - 使用新格式：{供應商名稱}需要人手處理{日期}.xlsx
-        date_str = datetime.now().strftime("%Y%m%d")
+        # 存檔 - 使用新格式：{供應商名稱}需要人手處理{日期時間戳}.xlsx
+        # 加入時間戳（精確到秒）避免同一天同一供應商產生相同檔名導致覆蓋
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         # 清理供應商名稱，移除可能導致檔案名問題的字元
         safe_supplier_name = supplier_name.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
-        filename = f"{safe_supplier_name}需要人手處理{date_str}.xlsx"
+        filename = f"{safe_supplier_name}需要人手處理{timestamp_str}.xlsx"
         save_path = pending_dir / filename
         
         try:
@@ -814,25 +854,30 @@ class ReceiptExporter:
                 product_code = str(row['人手輸入貨品編號']).strip()
                 
                 if barcode and product_name and product_code:
-                    mapping_manager.add_mapping(barcode, product_name, product_code, supplier_name)
-                    mapping_count += 1
-                    
-                    # 準備處理後的資料
-                    processed_row = {
-                        '貨品條碼': barcode,
-                        '貨品名稱': product_name,
-                        '入貨價': str(row.get('入貨價', '0')).strip(),
-                        '入貨量': str(row.get('入貨量', '0')).strip(),
-                        '貨品編號': product_code,
-                        '供應商名稱': supplier_name,
-                        '店號': 'S1',
-                        '入貨日期': datetime.now().strftime('%Y%m%d'),
-                        '收據單號': '',
-                        '供應商編號': '001',
-                        '備註': '',
-                        '狀態': ''
-                    }
-                    processed_rows.append(processed_row)
+                    # 嘗試新增 mapping，檢查貨品編號是否重複
+                    success = mapping_manager.add_mapping(barcode, product_name, product_code, supplier_name)
+                    if success:
+                        mapping_count += 1
+                        
+                        # 準備處理後的資料
+                        processed_row = {
+                            '貨品條碼': barcode,
+                            '貨品名稱': product_name,
+                            '入貨價': str(row.get('入貨價', '0')).strip(),
+                            '入貨量': str(row.get('入貨量', '0')).strip(),
+                            '貨品編號': product_code,
+                            '供應商名稱': supplier_name,
+                            '店號': 'S1',
+                            '入貨日期': datetime.now().strftime('%Y%m%d'),
+                            '收據單號': '',
+                            '供應商編號': '001',
+                            '備註': '',
+                            '狀態': ''
+                        }
+                        processed_rows.append(processed_row)
+                    else:
+                        # 貨品編號重複，跳過這筆記錄
+                        logger.warning(f"      跳過條碼 {barcode}，因為貨品編號 {product_code} 重複")
             
             if processed_rows:
                 processed_df = pd.DataFrame(processed_rows)
@@ -904,11 +949,7 @@ def main():
             exporter.save_pos_excel(processed_df, file_path.name)
             logger.info(f"   ✅ 已匯出 {len(processed_df)} 筆產品到 POS 匯入檔")
 
-            loader.archive_file(file_path)
-            logger.info(f"   📦 原始待處理檔已歸檔")
-            # 無論是否有未填寫記錄，都歸檔原始檔（因為已經處理過了）
-            
-            # 處理未填寫的記錄
+            # 先處理未填寫的記錄（在歸檔之前，避免數據丟失）
             if not unfilled_df.empty:
                 # 有未填寫的記錄，重新保存
                 supplier_name = file_path.stem.split('需要人手處理')[0] if '需要人手處理' in file_path.stem else ''
@@ -917,8 +958,12 @@ def main():
                     logger.info(f"   📋 已更新待處理檔，保留 {len(unfilled_df)} 筆未填寫的記錄")
                 except Exception as e:
                     logger.error(f"   ❌ 保存未填寫記錄失敗: {e}")
-                    logger.warning(f"   ⚠️ 保留原始待處理檔，未歸檔")
+                    logger.warning(f"   ⚠️ 保留原始待處理檔，未歸檔，避免遺失資料")
                     continue  # 保存失敗時不歸檔，避免遺失資料
+            
+            # 只有當所有處理都成功後才歸檔
+            loader.archive_file(file_path)
+            logger.info(f"   📦 原始待處理檔已歸檔")
             
             
 
@@ -957,7 +1002,10 @@ def main():
                 loader.archive_file(file_path)
                 logger.info(f"   📦 原始收據已歸檔")
             else:
-                logger.error("   ❌ 清洗失敗 (未識別或格式錯誤)")
+                logger.error(f"   ❌ {file_path.name}: 清洗失敗 (未識別供應商或格式錯誤)")
+                logger.warning(f"      檔案保留在 pending 資料夾，請檢查後重新處理")
+        else:
+            logger.warning(f"   ⚠️ {file_path.name}: 讀取後數據為空，跳過處理")
         
     logger.info("程式執行完成，等待用戶確認...")
     logger.info("-" * 30)
