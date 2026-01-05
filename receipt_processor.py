@@ -35,6 +35,8 @@ class ConfigManager:
         """讀取 Excel 設定"""
         if not self.settings_file.exists():
             self._create_default_config()
+            print(f"⚠️ 已建立預設設定檔: {self.settings_file}")
+            print("   請編輯此檔案以設定供應商欄位對應關係")
         
         try:
             df = pd.read_excel(self.settings_file)
@@ -43,7 +45,10 @@ class ConfigManager:
             logger.info("✅ 供應商設定檔讀取成功")
             return df
         except Exception as e:
-            logger.error(f"❌ 讀取設定檔失敗: {e}")
+            error_msg = f"❌ 讀取設定檔失敗: {e}"
+            logger.error(error_msg)
+            print(error_msg)
+            print("   使用預設設定檔，建議檢查設定檔格式")
             return pd.DataFrame(self.DEFAULT_DATA)
 
     def _create_default_config(self):
@@ -167,6 +172,7 @@ class MappingManager:
             error_msg = f"貨品編號 {product_code_clean} 不存在於 POS 系統 (DetailGoodsStockToday.csv)"
             logger.error(f"   ❌ {error_msg}")
             logger.error(f"      無法為條碼 {barcode_clean} 新增此 mapping")
+            print(f"   ❌ 條碼 {barcode_clean}: {error_msg}")
             return False, error_msg
         
         # 檢查貨品編號是否已被其他條碼使用（貨品編號不能重複）
@@ -192,6 +198,7 @@ class MappingManager:
                     logger.error(f"      此貨品編號已被使用:")
                     logger.error(f"      條碼: {existing_record['貨品條碼']}, 貨品名稱: {existing_record['貨品名稱']}")
                     logger.error(f"      無法為條碼 {barcode_clean} 新增此 mapping")
+                    print(f"   ❌ 條碼 {barcode_clean}: {error_msg}")
                     return False, error_msg
         
         # 檢查是否已存在相同的條碼+貨品名稱組合
@@ -231,9 +238,11 @@ class MappingManager:
                 break  # 成功儲存後跳出迴圈
             except PermissionError:
                 logger.warning(f"⚠️ 無法儲存 mapping 檔案 (被佔用): {self.mapping_file.name}")
-                logger.error(f"🛑 錯誤：檔案 '{self.mapping_file.name}' 正被 Excel 開啟中！")
-                logger.info("👉 請關閉該檔案，然後按 [Enter] 鍵重試...")
-                input()  # 等待用戶輸入，但不輸出到終端（通過 logger 已記錄）
+                error_msg = f"🛑 錯誤：檔案 '{self.mapping_file.name}' 正被 Excel 開啟中！"
+                logger.error(error_msg)
+                print(error_msg)
+                print("👉 請關閉該檔案，然後按 [Enter] 鍵重試...")
+                input()  # 等待用戶輸入
                 logger.info("🔄 使用者嘗試重試儲存 mapping...")
             except Exception as e:
                 logger.error(f"❌ 儲存 mapping 失敗 (未知錯誤): {e}")
@@ -288,9 +297,11 @@ class BatchReceiptLoader:
                 break # 成功移動後跳出迴圈
             except PermissionError:
                 logger.warning(f"⚠️ 無法移動檔案 (被佔用): {file_path.name}")
-                logger.error(f"🛑 錯誤：檔案 '{file_path.name}' 正被 Excel 開啟中！")
-                logger.info("👉 請關閉該檔案，然後按 [Enter] 鍵重試...")
-                input()  # 等待用戶輸入，但不輸出到終端（通過 logger 已記錄）
+                error_msg = f"🛑 錯誤：檔案 '{file_path.name}' 正被 Excel 開啟中！"
+                logger.error(error_msg)
+                print(error_msg)
+                print("👉 請關閉該檔案，然後按 [Enter] 鍵重試...")
+                input()  # 等待用戶輸入
                 logger.info("🔄 使用者嘗試重試歸檔...")
             except Exception as e:
                 logger.error(f"❌ 歸檔失敗 (未知錯誤): {e}")
@@ -308,7 +319,10 @@ class BatchReceiptLoader:
             header_idx = self._find_header_row(df_raw, expected_keywords)
             
             if header_idx == -1:
-                logger.warning(f"⚠️ {file_path.name}: 找不到標題列，跳過")
+                error_msg = f"⚠️ {file_path.name}: 找不到標題列，跳過"
+                logger.warning(error_msg)
+                print(error_msg)
+                print("   請檢查檔案格式或供應商設定檔")
                 return pd.DataFrame(), pd.DataFrame()
 
             # 2. 正式讀取數據
@@ -322,7 +336,9 @@ class BatchReceiptLoader:
             return df_raw, df_data
 
         except Exception as e:
-            logger.error(f"❌ 讀取錯: {e}")
+            error_msg = f"❌ {file_path.name} 讀取錯誤: {e}"
+            logger.error(error_msg)
+            print(error_msg)
             return pd.DataFrame(), pd.DataFrame()
 
     def _find_header_row(self, df: pd.DataFrame, keywords: List[str]) -> int:
@@ -391,15 +407,21 @@ class ReceiptCleaner:
         if supplier_config is not None:
             df = self._rename_columns_strict(df, supplier_config)
         else:
-            logger.warning("   ⚠️ 無法識別供應商 (欄位特徵不符)")
+            error_msg = "⚠️ 無法識別供應商 (欄位特徵不符)"
+            logger.warning(f"   {error_msg}")
             logger.info(f"      收據欄位: {list(df.columns)}")
+            print(error_msg)
+            print(f"   收據欄位: {list(df.columns)}")
+            print("   請檢查供應商設定檔或聯絡管理員新增供應商設定")
             return None, "" # 直接返回 None，不繼續處理
 
         # 3. 檢查必要欄位
         required_cols = ["貨品條碼", "入貨價", "入貨量", "貨品名稱"]
         missing = [c for c in required_cols if c not in df.columns]
         if missing:
-            logger.error(f"❌ 缺少必要欄位: {missing}")
+            error_msg = f"❌ 缺少必要欄位: {missing}"
+            logger.error(error_msg)
+            print(error_msg)
             return None, supplier_name
 
         df = df[required_cols].copy()
@@ -475,7 +497,10 @@ class ProductValidator:
     def _load_stock_data(self):
         """讀取庫存 CSV 並建立查找集合"""
         if not self.stock_csv_path.exists():
-            logger.warning(f"⚠️ 庫存檔案不存在: {self.stock_csv_path}")
+            error_msg = f"⚠️ 庫存檔案不存在: {self.stock_csv_path}"
+            logger.warning(error_msg)
+            print(error_msg)
+            print("   請確認 DetailGoodsStockToday.csv 檔案位置")
             return
         
         try:
@@ -494,10 +519,15 @@ class ProductValidator:
                 barcodes = df['Barcode'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True)
                 self.barcode_set = {code for code in barcodes if code and code.lower() != 'nan'}
             
-            logger.info(f"✅ 已載入庫存記錄: ProductCode {len(self.productcode_set)} 筆, Barcode {len(self.barcode_set)} 筆")
+            info_msg = f"✅ 已載入庫存記錄: ProductCode {len(self.productcode_set)} 筆, Barcode {len(self.barcode_set)} 筆"
+            logger.info(info_msg)
+            print(info_msg)
             
         except Exception as e:
-            logger.error(f"❌ 讀取庫存檔案失敗: {e}")
+            error_msg = f"❌ 讀取庫存檔案失敗: {e}"
+            logger.error(error_msg)
+            print(error_msg)
+            print("   請檢查檔案格式或編碼")
     
     def get_barcode_options(self, barcode: str) -> List[Dict[str, str]]:
         """
@@ -613,6 +643,18 @@ class ProductValidator:
         logger.info(f"      ✅ 找到 ProductCode: {matched_count} 筆")
         logger.info(f"      ⚠️ 只找到 Barcode: {barcode_only_count} 筆")
         logger.info(f"      ❌ 完全找不到: {unmatched_count} 筆")
+        
+        # 輸出摘要到控制台
+        total = len(df)
+        if total > 0:
+            print(f"   📊 驗證結果: 總計 {total} 筆")
+            if mapping_count > 0:
+                print(f"      🔄 使用 Mapping: {mapping_count} 筆")
+            print(f"      ✅ 找到 ProductCode: {matched_count} 筆")
+            if barcode_only_count > 0:
+                print(f"      ⚠️ 只找到 Barcode: {barcode_only_count} 筆 (需人手選擇)")
+            if unmatched_count > 0:
+                print(f"      ❌ 完全找不到: {unmatched_count} 筆 (需檢查條碼或新增貨品)")
         
         return matched_df, unmatched_df
 
@@ -826,12 +868,18 @@ class ReceiptExporter:
                 logger.info(f"   📋 待處理檔: {filename}")
                 logger.info(f"      原因統計: {df_export['處理原因'].value_counts().to_dict()}")
             except ImportError:
-                logger.error("❌ 需要安裝 openpyxl 或 xlsxwriter 才能輸出 .xlsx 格式")
+                error_msg = "❌ 需要安裝 openpyxl 或 xlsxwriter 才能輸出 .xlsx 格式"
+                logger.error(error_msg)
                 logger.info("   請執行: pip install openpyxl")
+                print(error_msg)
+                print("   請執行: pip install openpyxl")
         except Exception as e:
-            logger.error(f"❌ 儲存待處理檔失敗: {e}")
+            error_msg = f"❌ 儲存待處理檔失敗: {e}"
+            logger.error(error_msg)
             logger.error(f"   檔案路徑: {save_path}")
             logger.error(f"   資料筆數: {len(df_export)}")
+            print(error_msg)
+            print(f"   檔案路徑: {save_path}")
             raise  # 重新拋出異常，讓主流程的 try-except 能捕獲
     
     def process_manual_excel(self, file_path: Path, mapping_manager: 'MappingManager', validator: 'ProductValidator', base_dir: str = "workspace") -> Tuple[pd.DataFrame, int, pd.DataFrame]:
@@ -858,7 +906,9 @@ class ReceiptExporter:
             required_cols = ['貨品條碼', '貨品名稱', '人手輸入貨品編號']
             missing = [c for c in required_cols if c not in df.columns]
             if missing:
-                logger.error(f"❌ 待處理檔缺少必要欄位: {missing}")
+                error_msg = f"❌ 待處理檔缺少必要欄位: {missing}"
+                logger.error(error_msg)
+                print(error_msg)
                 return pd.DataFrame(), 0, pd.DataFrame()
             
             # 分離已填寫和未填寫的記錄
@@ -944,7 +994,9 @@ class ReceiptExporter:
                 return pd.DataFrame(), 0, df_unfilled
                 
         except Exception as e:
-            logger.error(f"❌ 處理待處理檔失敗: {e}")
+            error_msg = f"❌ 處理待處理檔失敗: {e}"
+            logger.error(error_msg)
+            print(error_msg)
             return pd.DataFrame(), 0, pd.DataFrame()
 
 def main():
@@ -961,7 +1013,11 @@ def main():
     # 讀取並驗證庫存數據源
     input_stock = "data/processed/DetailGoodsStockToday.csv"
     if not os.path.exists(input_stock):
-        logger.error("❌ 錯誤: 找不到數據源。")
+        error_msg = "❌ 錯誤: 找不到數據源 DetailGoodsStockToday.csv"
+        logger.error(error_msg)
+        print(error_msg)
+        print(f"   預期路徑: {os.path.abspath(input_stock)}")
+        print("   請確認檔案位置後重新執行")
         return
     
     # 先建立產品驗證器（不傳入 mapping_manager，避免循環依賴）
@@ -986,21 +1042,29 @@ def main():
     
     # 若 Config 沒東西，給個基本預設值以免程式跑不動
     if not search_keywords:
-        logger.warning("⚠️ Config 中無關鍵字，請設定供應商設定檔！")
+        error_msg = "⚠️ Config 中無關鍵字，請設定供應商設定檔！"
+        logger.warning(error_msg)
+        print(error_msg)
+        print(f"   請編輯: {config_mgr.settings_file}")
         return
 
     # 2. 先處理待處理檔案（人工填寫的）
     logger.info("📋 檢查待處理檔案...")
     manual_files = [f for f in loader.get_pending_files() if '需要人手處理' in f.stem]
+    if manual_files:
+        print(f"\n📋 發現 {len(manual_files)} 個待處理檔案")
     for file_path in manual_files:
         logger.info(f"📝 處理待處理檔: {file_path.name}")
         processed_df, mapping_count, unfilled_df = exporter.process_manual_excel(file_path, mapping_mgr, validator, base_dir)
         
         if not processed_df.empty:
             # 有已填寫記錄 → 需要處理
+            print(f"\n📝 處理檔案: {file_path.name}")
             # 匯出到 POS 檔
             exporter.save_pos_excel(processed_df, file_path.name)
-            logger.info(f"   ✅ 已匯出 {len(processed_df)} 筆產品到 POS 匯入檔")
+            success_msg = f"   ✅ 已匯出 {len(processed_df)} 筆產品到 POS 匯入檔"
+            logger.info(success_msg)
+            print(success_msg)
 
             # 先處理未填寫的記錄（在歸檔之前，避免數據丟失）
             if not unfilled_df.empty:
@@ -1008,10 +1072,15 @@ def main():
                 supplier_name = file_path.stem.split('需要人手處理')[0] if '需要人手處理' in file_path.stem else ''
                 try:
                     exporter.save_unmatched_excel(unfilled_df, supplier_name, validator, base_dir)
-                    logger.info(f"   📋 已更新待處理檔，保留 {len(unfilled_df)} 筆未填寫的記錄")
+                    info_msg = f"   📋 已更新待處理檔，保留 {len(unfilled_df)} 筆未填寫的記錄"
+                    logger.info(info_msg)
+                    print(info_msg)
                 except Exception as e:
-                    logger.error(f"   ❌ 保存未填寫記錄失敗: {e}")
+                    error_msg = f"   ❌ 保存未填寫記錄失敗: {e}"
+                    logger.error(error_msg)
                     logger.warning(f"   ⚠️ 保留原始待處理檔，未歸檔，避免遺失資料")
+                    print(error_msg)
+                    print("   ⚠️ 保留原始待處理檔，未歸檔，避免遺失資料")
                     continue  # 保存失敗時不歸檔，避免遺失資料
             
             # 只有當所有處理都成功後才歸檔
@@ -1027,41 +1096,82 @@ def main():
     
     # 3. 處理收據檔案
     logger.info("📄 處理收據檔案...")
-    for file_path in loader.get_pending_files():
-        # 跳過待處理檔案（已經處理過了）
-        if '需要人手處理' in file_path.stem:
-            continue
-            
+    receipt_files = [f for f in loader.get_pending_files() if '需要人手處理' not in f.stem]
+    if receipt_files:
+        print(f"\n📄 發現 {len(receipt_files)} 個收據檔案")
+    
+    # 統計用
+    total_processed = 0
+    total_matched = 0
+    total_unmatched = 0
+    total_failed = 0
+    
+    for file_path in receipt_files:
+        print(f"\n📄 處理檔案: {file_path.name}")
         raw_header_df, raw_data_df = loader.smart_load(file_path, search_keywords)
         
         if not raw_data_df.empty:
             clean_df, supplier_name = cleaner.process(raw_data_df)
             
             if clean_df is not None:
+                total_processed += len(clean_df)
                 # 產品驗證：分離有對應和找不到的產品（會自動檢查 mapping）
                 matched_df, unmatched_df = validator.validate_products(clean_df, supplier_name)
                 
                 # 處理有對應的產品（正常匯出 POS 檔）
                 if not matched_df.empty:
                     exporter.save_pos_excel(matched_df, file_path.name)
-                    logger.info(f"   ✅ 已匯出 {len(matched_df)} 筆產品到 POS 匯入檔")
+                    success_msg = f"   ✅ 已匯出 {len(matched_df)} 筆產品到 POS 匯入檔"
+                    logger.info(success_msg)
+                    print(success_msg)
+                    total_matched += len(matched_df)
                 
                 # 處理找不到對應的產品（存待處理檔）
                 if not unmatched_df.empty:
                     exporter.save_unmatched_excel(unmatched_df, supplier_name, validator, base_dir)
-                    logger.info(f"   ⚠️ 已標記 {len(unmatched_df)} 筆產品待人工處理")
+                    warning_msg = f"   ⚠️ 已標記 {len(unmatched_df)} 筆產品待人工處理"
+                    logger.info(warning_msg)
+                    print(warning_msg)
+                    total_unmatched += len(unmatched_df)
                 
                 # 所有處理過的原始收據都歸檔到 processed
                 loader.archive_file(file_path)
                 logger.info(f"   📦 原始收據已歸檔")
             else:
-                logger.error(f"   ❌ {file_path.name}: 清洗失敗 (未識別供應商或格式錯誤)")
+                error_msg = f"   ❌ {file_path.name}: 清洗失敗 (未識別供應商或格式錯誤)"
+                logger.error(error_msg)
                 logger.warning(f"      檔案保留在 pending 資料夾，請檢查後重新處理")
+                print(error_msg)
+                print("      檔案保留在 pending 資料夾，請檢查後重新處理")
+                total_failed += 1
         else:
-            logger.warning(f"   ⚠️ {file_path.name}: 讀取後數據為空，跳過處理")
-        
+            warning_msg = f"   ⚠️ {file_path.name}: 讀取後數據為空，跳過處理"
+            logger.warning(warning_msg)
+            print(warning_msg)
+            total_failed += 1
+    
+    # 輸出最終摘要
+    print("\n" + "=" * 50)
+    print("📊 處理摘要")
+    print("=" * 50)
+    if total_processed > 0:
+        print(f"總處理筆數: {total_processed} 筆")
+        print(f"  ✅ 成功匯出 POS: {total_matched} 筆")
+        if total_unmatched > 0:
+            print(f"  ⚠️ 待人工處理: {total_unmatched} 筆")
+        if total_failed > 0:
+            print(f"  ❌ 處理失敗: {total_failed} 個檔案")
+    else:
+        if not manual_files and not receipt_files:
+            print("⚠️ 沒有發現待處理的檔案")
+        else:
+            print("⚠️ 沒有成功處理任何檔案")
+    print("=" * 50)
+    
     logger.info("程式執行完成，等待用戶確認...")
     logger.info("-" * 30)
+
+    input("按 Enter 鍵退出...")
 
 
 # --- 主程式 ---
