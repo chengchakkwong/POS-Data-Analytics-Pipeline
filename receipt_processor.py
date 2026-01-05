@@ -736,6 +736,11 @@ class PriceListManager:
             df = pd.read_excel(self.price_list_file, dtype=str, engine='openpyxl')
             # 確保欄位都是字串，並去除前後空白
             df = df.astype(str).apply(lambda x: x.str.strip())
+            # 將 "nan" 字串轉回空字串（特別是檢查欄位）
+            df = df.replace('nan', '', regex=False)
+            # 特別處理檢查欄位，確保空值為空字串
+            if '檢查' in df.columns:
+                df['檢查'] = df['檢查'].replace(['nan', 'NaN', 'None'], '', regex=False)
             logger.info(f"✅ 已載入價錢表: {len(df)} 筆記錄")
             return df
         except Exception as e:
@@ -844,6 +849,7 @@ class PriceListManager:
                         self.price_list_df.loc[idx, '貨品名稱'] = matching_new['貨品名稱']
                     if matching_new['供應商名稱']:
                         self.price_list_df.loc[idx, '供應商名稱'] = matching_new['供應商名稱']
+                    # 注意：不更新檢查欄位，保留原有值（員工可能已經打勾）
             
             # 新增記錄
             if to_add:
@@ -913,6 +919,13 @@ class PriceListManager:
                     
                     # 寫入數據（只寫入顯示的欄位）
                     for _, row in self.price_list_df.iterrows():
+                        check_value = row.get('檢查', '')
+                        # 將 "nan" 字串轉為空字串
+                        if pd.isna(check_value) or str(check_value).strip().lower() in ['nan', 'none', '']:
+                            check_value = ''
+                        else:
+                            check_value = str(check_value).strip()
+                        
                         ws.append([
                             row.get('供應商名稱', ''),
                             row.get('貨品條碼', ''),
@@ -920,7 +933,7 @@ class PriceListManager:
                             row.get('目前庫存', ''),
                             row.get('入貨量', ''),
                             row.get('售價', ''),
-                            row.get('檢查', '')  # 空白欄位供員工打勾
+                            check_value  # 確保是空字串而不是 "nan"
                         ])
                     
                     # 設定數據格式
