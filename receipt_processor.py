@@ -659,12 +659,349 @@ class ProductValidator:
         return matched_df, unmatched_df
 
 
+# --- 價錢表管理器 ---
+class PriceListManager:
+    def __init__(self, base_dir: str = "workspace", stock_csv_path: str = ""):
+        """
+        管理已成功匯出產品的價錢表
+        
+        Args:
+            base_dir: 工作目錄路徑
+            stock_csv_path: DetailGoodsStockToday.csv 的路徑，用於讀取庫存和售價
+        """
+        self.base_dir = Path(base_dir)
+        self.price_list_dir = self.base_dir / "output" / "price_list"
+        self.price_list_dir.mkdir(parents=True, exist_ok=True)
+        self.today_str = datetime.now().strftime('%Y%m%d')
+        self.price_list_file = self.price_list_dir / f"今日價錢表_{self.today_str}.xlsx"
+        self.stock_csv_path = Path(stock_csv_path) if stock_csv_path else None
+        self.stock_df = None
+        self._load_stock_data()
+        self.price_list_df = self._load_price_list()
+    
+    def _load_stock_data(self):
+        """讀取庫存 CSV 以獲取 CurrStock 和 RetailPrice"""
+        if not self.stock_csv_path or not self.stock_csv_path.exists():
+            logger.warning(f"⚠️ 庫存檔案不存在，無法讀取庫存和售價資訊")
+            return
+        
+        try:
+            self.stock_df = pd.read_csv(self.stock_csv_path, dtype=str, encoding='utf-8-sig')
+            logger.debug(f"✅ 已載入庫存資料: {len(self.stock_df)} 筆")
+        except Exception as e:
+            logger.error(f"❌ 讀取庫存檔案失敗: {e}")
+            self.stock_df = None
+    
+    def _get_stock_info(self, product_code: str) -> Tuple[str, str]:
+        """
+        從庫存 CSV 獲取目前庫存和售價
+        
+        Args:
+            product_code: 貨品編號
+        
+        Returns:
+            Tuple[目前庫存, 售價]
+        """
+        if self.stock_df is None:
+            return '', ''
+        
+        # 清洗貨品編號格式
+        product_code_clean = pd.Series([str(product_code)]).str.strip().str.replace(r'\.0+$', '', regex=True).iloc[0]
+        
+        # 查找匹配的記錄
+        if 'ProductCode' in self.stock_df.columns:
+            mask = self.stock_df['ProductCode'].astype(str).str.strip().str.replace(r'\.0+$', '', regex=True) == product_code_clean
+            matched = self.stock_df[mask]
+            
+            if not matched.empty:
+                row = matched.iloc[0]
+                curr_stock = str(row.get('CurrStock', '')).strip() if pd.notna(row.get('CurrStock')) else ''
+                retail_price = str(row.get('RetailPrice', '')).strip() if pd.notna(row.get('RetailPrice')) else ''
+                return curr_stock, retail_price
+        
+        return '', ''
+    
+    def _load_price_list(self) -> pd.DataFrame:
+        """讀取今天的價錢表，如果不存在則建立新的"""
+        if not self.price_list_file.exists():
+            # 建立新的價錢表
+            df = pd.DataFrame(columns=[
+                '供應商名稱', '貨品條碼', '貨品名稱', '目前庫存', '入貨量', 
+                '售價', '檢查', '貨品編號', '入貨價', '更新時間', '來源檔案'
+            ])
+            logger.info(f"📋 建立新的價錢表: {self.price_list_file.name}")
+            return df
+        
+        try:
+            df = pd.read_excel(self.price_list_file, dtype=str, engine='openpyxl')
+            # 確保欄位都是字串，並去除前後空白
+            df = df.astype(str).apply(lambda x: x.str.strip())
+            logger.info(f"✅ 已載入價錢表: {len(df)} 筆記錄")
+            return df
+        except Exception as e:
+            logger.error(f"❌ 讀取價錢表失敗: {e}")
+            # 如果讀取失敗，建立新的
+            return pd.DataFrame(columns=[
+                '供應商名稱', '貨品條碼', '貨品名稱', '目前庫存', '入貨量', 
+                '售價', '檢查', '貨品編號', '入貨價', '更新時間', '來源檔案'
+            ])
+    
+    def update_price_list(self, df: pd.DataFrame, source_filename: str = ""):
+        """
+        更新價錢表，新增或更新產品價格
+        
+        Args:
+            df: 包含產品資訊的 DataFrame，必須包含：貨品編號、貨品條碼、貨品名稱、入貨價、入貨量、供應商名稱
+            source_filename: 來源檔案名稱（用於追蹤）
+        """
+        if df.empty:
+            return
+        
+        # 檢查必要欄位
+        required_cols = ['貨品編號', '貨品條碼', '貨品名稱', '入貨價', '入貨量', '供應商名稱']
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            logger.error(f"❌ 價錢表更新失敗：缺少必要欄位 {missing}")
+            return
+        
+        # 準備要新增/更新的數據
+        update_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        new_records = []
+        
+        for _, row in df.iterrows():
+            product_code = str(row['貨品編號']).strip()
+            barcode = str(row['貨品條碼']).strip()
+            product_name = str(row['貨品名稱']).strip()
+            price = str(row['入貨價']).strip()
+            quantity = str(row['入貨量']).strip()
+            supplier = str(row.get('供應商名稱', '')).strip()
+            
+            # 跳過空值
+            if not product_code or product_code.lower() == 'nan':
+                continue
+            
+            # 從庫存 CSV 獲取目前庫存和售價
+            curr_stock, retail_price = self._get_stock_info(product_code)
+            
+            new_records.append({
+                '供應商名稱': supplier,
+                '貨品條碼': barcode,
+                '貨品名稱': product_name,
+                '目前庫存': curr_stock,
+                '入貨量': quantity,
+                '售價': retail_price,
+                '檢查': '',  # 空白欄位供員工打勾
+                '貨品編號': product_code,
+                '入貨價': price,  # 隱藏欄位，但保留在數據中
+                '更新時間': update_time,
+                '來源檔案': source_filename
+            })
+        
+        if not new_records:
+            return
+        
+        # 轉換為 DataFrame
+        new_df = pd.DataFrame(new_records)
+        
+        # 合併到現有價錢表
+        # 策略：如果貨品編號已存在，則更新價格和時間；否則新增
+        if self.price_list_df.empty:
+            self.price_list_df = new_df
+        else:
+            # 找出已存在的貨品編號
+            existing_codes = set(self.price_list_df['貨品編號'].astype(str).str.strip())
+            
+            # 分離新增和更新的記錄
+            to_add = []
+            to_update_indices = []
+            
+            for idx, new_row in new_df.iterrows():
+                product_code = str(new_row['貨品編號']).strip()
+                if product_code in existing_codes:
+                    # 找到對應的索引進行更新
+                    mask = self.price_list_df['貨品編號'].astype(str).str.strip() == product_code
+                    update_indices = self.price_list_df[mask].index.tolist()
+                    to_update_indices.extend(update_indices)
+                else:
+                    to_add.append(new_row)
+            
+            # 更新現有記錄
+            if to_update_indices:
+                for idx in to_update_indices:
+                    matching_new = new_df[new_df['貨品編號'].astype(str).str.strip() == 
+                                         self.price_list_df.loc[idx, '貨品編號']].iloc[0]
+                    # 更新入貨量、入貨價、更新時間
+                    self.price_list_df.loc[idx, '入貨量'] = matching_new['入貨量']
+                    self.price_list_df.loc[idx, '入貨價'] = matching_new['入貨價']
+                    self.price_list_df.loc[idx, '更新時間'] = matching_new['更新時間']
+                    self.price_list_df.loc[idx, '來源檔案'] = matching_new['來源檔案']
+                    # 更新目前庫存和售價（從庫存 CSV 重新讀取）
+                    curr_stock, retail_price = self._get_stock_info(matching_new['貨品編號'])
+                    self.price_list_df.loc[idx, '目前庫存'] = curr_stock
+                    self.price_list_df.loc[idx, '售價'] = retail_price
+                    # 如果貨品名稱或供應商名稱有更新，也更新
+                    if matching_new['貨品名稱']:
+                        self.price_list_df.loc[idx, '貨品名稱'] = matching_new['貨品名稱']
+                    if matching_new['供應商名稱']:
+                        self.price_list_df.loc[idx, '供應商名稱'] = matching_new['供應商名稱']
+            
+            # 新增記錄
+            if to_add:
+                add_df = pd.DataFrame(to_add)
+                self.price_list_df = pd.concat([self.price_list_df, add_df], ignore_index=True)
+        
+        # 計算新增和更新的數量
+        if self.price_list_df.empty:
+            added_count = len(new_records)
+            updated_count = 0
+        else:
+            existing_codes_before = set(self.price_list_df['貨品編號'].astype(str).str.strip())
+            new_codes = set([str(r['貨品編號']).strip() for r in new_records])
+            added_count = len(new_codes - existing_codes_before)
+            updated_count = len(new_codes & existing_codes_before)
+        
+        # 儲存價錢表
+        self._save_price_list()
+        
+        logger.info(f"📋 價錢表已更新: 新增 {added_count} 筆, 更新 {updated_count} 筆")
+        if added_count > 0 or updated_count > 0:
+            print(f"   📋 價錢表已更新: 新增 {added_count} 筆, 更新 {updated_count} 筆")
+    
+    def _save_price_list(self):
+        """儲存價錢表到檔案 (處理檔案被佔用問題)"""
+        # 按供應商名稱和貨品編號排序
+        if not self.price_list_df.empty:
+            self.price_list_df = self.price_list_df.sort_values(['供應商名稱', '貨品編號']).reset_index(drop=True)
+        
+        while True:
+            try:
+                # 使用 openpyxl 儲存，可以設定格式
+                try:
+                    from openpyxl import Workbook
+                    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+                    from openpyxl.utils import get_column_letter
+                    
+                    wb = Workbook()
+                    ws = wb.active
+                    ws.title = "今日價錢表"
+                    
+                    # 定義欄位順序（顯示的欄位）
+                    display_columns = [
+                        '供應商名稱', '貨品條碼', '貨品名稱', '目前庫存', 
+                        '入貨量', '售價', '檢查'
+                    ]
+                    
+                    # 寫入標題
+                    headers = display_columns.copy()
+                    ws.append(headers)
+                    
+                    # 設定標題格式
+                    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                    header_font = Font(bold=True, color="FFFFFF", size=11)
+                    thin_border = Border(
+                        left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin')
+                    )
+                    
+                    for cell in ws[1]:
+                        cell.fill = header_fill
+                        cell.font = header_font
+                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                        cell.border = thin_border
+                    
+                    # 寫入數據（只寫入顯示的欄位）
+                    for _, row in self.price_list_df.iterrows():
+                        ws.append([
+                            row.get('供應商名稱', ''),
+                            row.get('貨品條碼', ''),
+                            row.get('貨品名稱', ''),
+                            row.get('目前庫存', ''),
+                            row.get('入貨量', ''),
+                            row.get('售價', ''),
+                            row.get('檢查', '')  # 空白欄位供員工打勾
+                        ])
+                    
+                    # 設定數據格式
+                    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+                        for cell in row:
+                            cell.border = thin_border
+                            cell.alignment = Alignment(vertical='center', wrap_text=True)
+                            # 數值欄位右對齊
+                            if cell.column in [4, 5, 6]:  # 目前庫存、入貨量、售價
+                                cell.alignment = Alignment(horizontal='right', vertical='center')
+                    
+                    # 調整欄寬
+                    column_widths = {
+                        'A': 20,  # 供應商名稱
+                        'B': 20,  # 貨品條碼
+                        'C': 40,  # 貨品名稱
+                        'D': 12,  # 目前庫存
+                        'E': 12,  # 入貨量
+                        'F': 12,  # 售價
+                        'G': 10   # 檢查
+                    }
+                    for col, width in column_widths.items():
+                        ws.column_dimensions[col].width = width
+                    
+                    # 凍結第一行
+                    ws.freeze_panes = 'A2'
+                    
+                    # 隱藏入貨價欄位（但保留在數據中，放在後面）
+                    # 先添加隱藏欄位
+                    hidden_col_idx = len(display_columns) + 1
+                    hidden_headers = ['貨品編號', '入貨價', '更新時間', '來源檔案']
+                    for i, header in enumerate(hidden_headers):
+                        col_letter = get_column_letter(hidden_col_idx + i)
+                        ws.cell(row=1, column=hidden_col_idx + i, value=header)
+                        ws.column_dimensions[col_letter].hidden = True
+                    
+                    # 寫入隱藏欄位的數據
+                    for row_idx, (_, df_row) in enumerate(self.price_list_df.iterrows(), start=2):
+                        ws.cell(row=row_idx, column=hidden_col_idx, value=df_row.get('貨品編號', ''))
+                        ws.cell(row=row_idx, column=hidden_col_idx + 1, value=df_row.get('入貨價', ''))
+                        ws.cell(row=row_idx, column=hidden_col_idx + 2, value=df_row.get('更新時間', ''))
+                        ws.cell(row=row_idx, column=hidden_col_idx + 3, value=df_row.get('來源檔案', ''))
+                    
+                    wb.save(str(self.price_list_file))
+                    logger.debug(f"💾 價錢表已儲存: {len(self.price_list_df)} 筆")
+                    print(f"   💾 價錢表檔案: {self.price_list_file.name}")
+                    break  # 成功儲存後跳出迴圈
+                    
+                except ImportError:
+                    # 如果沒有 openpyxl，使用 pandas 基本儲存
+                    # 只儲存顯示的欄位
+                    display_columns = [
+                        '供應商名稱', '貨品條碼', '貨品名稱', '目前庫存', 
+                        '入貨量', '售價', '檢查'
+                    ]
+                    display_df = self.price_list_df[display_columns].copy()
+                    display_df.to_excel(self.price_list_file, index=False, engine='openpyxl')
+                    logger.warning("⚠️ 使用基本格式儲存價錢表（建議安裝 openpyxl 以獲得更好的格式）")
+                    break  # 成功儲存後跳出迴圈
+                    
+            except PermissionError:
+                logger.warning(f"⚠️ 無法儲存價錢表檔案 (被佔用): {self.price_list_file.name}")
+                error_msg = f"🛑 錯誤：檔案 '{self.price_list_file.name}' 正被 Excel 開啟中！"
+                logger.error(error_msg)
+                print(error_msg)
+                print("👉 請關閉該檔案，然後按 [Enter] 鍵重試...")
+                input()  # 等待用戶輸入
+                logger.info("🔄 使用者嘗試重試儲存價錢表...")
+            except Exception as e:
+                logger.error(f"❌ 儲存價錢表失敗 (未知錯誤): {e}")
+                print(f"   ❌ 儲存價錢表失敗: {e}")
+                break  # 其他錯誤直接放棄，避免無窮迴圈
+
+
 # --- 檔案輸出器 ---
 class ReceiptExporter:
-    def __init__(self, base_dir: str = "workspace"):
+    def __init__(self, base_dir: str = "workspace", stock_csv_path: str = ""):
         self.output_root = Path(base_dir) / "output"
 
         self.pos_dir = self.output_root / "pos_import" # 存放 POS 格式的 XLS
+        self.price_list_mgr = PriceListManager(base_dir, stock_csv_path)  # 價錢表管理器
         
         self.pos_dir.mkdir(parents=True, exist_ok=True)
 
@@ -737,6 +1074,9 @@ class ReceiptExporter:
         
         workbook.save(str(save_path))
         logger.info(f"   💾 POS 匯入檔: {filename}")
+        
+        # 更新價錢表
+        self.price_list_mgr.update_price_list(df, original_filename)
     
     def save_unmatched_excel(self, df: pd.DataFrame, supplier_name: str, validator: Optional['ProductValidator'] = None, base_dir: str = "workspace"):
         """
@@ -1008,8 +1348,7 @@ def main():
     
     loader = BatchReceiptLoader(base_dir)
     cleaner = ReceiptCleaner(config_df)
-    exporter = ReceiptExporter(base_dir)
-
+    
     # 讀取並驗證庫存數據源
     input_stock = "data/processed/DetailGoodsStockToday.csv"
     if not os.path.exists(input_stock):
@@ -1028,6 +1367,9 @@ def main():
     
     # 更新 validator 的 mapping_manager（現在可以安全設置）
     validator.mapping_manager = mapping_mgr
+    
+    # 建立 Exporter（傳入 stock_csv_path 用於價錢表）
+    exporter = ReceiptExporter(base_dir, input_stock)
 
     logger.info("🚀 開始批次處理...")
     
