@@ -1,6 +1,11 @@
 import pandas as pd
 import numpy as np
 import os
+from logger_config import get_logger
+from pathlib import Path
+from firebase_service import FirebaseManager
+
+logger = get_logger(__name__)
 
 def analyze_profit_abc(
     stock_df: pd.DataFrame, 
@@ -8,7 +13,7 @@ def analyze_profit_abc(
     conservative_cost_ratio: float = 0.80
 ) -> pd.DataFrame:
     """
-    商品 ABC 利潤分析 (針對最近 12 個月)
+    商品 ABC 利潤分析（依傳入的 sales_df 期間計算）
     """
     # 1. 彙總銷售資料 (加入頻率觀察)
     sales_summary = sales_df.groupby('GoodsID').agg({
@@ -184,16 +189,28 @@ def analyze_abc_xyz(abc_df, sales_df):
 
     return final_df
 
+def upload_classification_to_firebase(classification_df: pd.DataFrame) -> None:
+    """
+    將 ABC/XYZ 分類結果上傳到 Firestore
+    """
+    try:
+        firebase = FirebaseManager()
+        firebase.upload_classification_df(classification_df)
+        logger.info("✅ 分類結果已上傳至 Firebase")
+    except Exception as e:
+        logger.error(f"❌ 上傳分類結果失敗: {e}")
+
 if __name__ == "__main__":
     input_stock = "data/processed/DetailGoodsStockToday.csv"
     input_sales = "data/processed/vw_GoodsDailySales_cache.parquet"
     output_path = "data/insights/abc_xyz_analysis.csv"
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     
-    print("🔍 開始進行智慧庫存分析 (ABC-XYZ + 新品識別)...")
+    logger.info("🔍 開始進行智慧庫存分析 (ABC-XYZ + 新品識別)...")
     
     try:
         if not os.path.exists(input_stock) or not os.path.exists(input_sales):
-            print("❌ 錯誤: 找不到輸入檔案，請確認路徑。")
+            logger.error("❌ 錯誤: 找不到輸入檔案，請確認路徑。")
         else:
             df_stock = pd.read_csv(input_stock)
             df_sales = pd.read_parquet(input_sales)
@@ -213,12 +230,15 @@ if __name__ == "__main__":
             
             # 3. 儲存結果
             abc_xyz_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-            print(f"✅ 分析完成！共處理 {len(abc_xyz_df)} 個 SKU。")
-            print(f"📊 結果儲存至: {output_path}")
+            logger.info(f"✅ 分析完成！共處理 {len(abc_xyz_df)} 個 SKU。")
+            logger.info(f"📊 結果儲存至: {output_path}")
             
             # 簡單統計
             new_count = len(abc_xyz_df[abc_xyz_df['ABC_Class'] == 'New'])
-            print(f"💡 偵測到 {new_count} 個新上架產品，已標記為 'New' 避開誤判。")
+            logger.info(f"💡 偵測到 {new_count} 個新上架產品，已標記為 'New' 避開誤判。")
+
+            # 4. 上傳分類結果到 Firebase
+            upload_classification_to_firebase(abc_xyz_df)
             
-    except Exception as e:
-        print(f"❌ 分析失敗: {e}")
+    except Exception:
+        logger.exception("❌ 分析失敗")

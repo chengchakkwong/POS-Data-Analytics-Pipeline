@@ -53,6 +53,13 @@ class FirebaseManager:
         unique_str = f"{item.get('ProductCode')}{item.get('CurrStock')}{item.get('RetailPrice')}{item.get('Name')}"
         return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
 
+    def _generate_classification_hash(self, item):
+        """
+        為分類資料生成指紋 (Hash)
+        """
+        unique_str = f"{item.get('ProductCode')}{item.get('ABC_Class')}{item.get('XYZ_Class')}{item.get('note')}"
+        return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
+
     def upload_stock_data(self, df_stock):
         """
         智慧上傳：只更新有變動的資料
@@ -117,5 +124,82 @@ class FirebaseManager:
         self._save_cache()
         
         logger.info(f"✨ 同步完成！")
+        logger.info(f"   - 實際寫入: {total_updated} 筆 (消耗額度)")
+        logger.info(f"   - 略過未變: {skipped_count} 筆 (節省額度)")
+
+    def upload_classification_df(self, df, collection_name='products'):
+        """
+        上傳分類結果：只寫入 ABC_Class、XYZ_Class 與 note
+        """
+        if df is None or df.empty:
+            logger.warning("⚠️ 分類資料為空，略過上傳")
+            return
+
+        required_cols = ['ProductCode', 'ABC_Class', 'XYZ_Class', 'Note']
+        for col in required_cols:
+            if col not in df.columns:
+                logger.error(f"❌ 分類 CSV 缺少欄位: {col}")
+                return
+
+        df = df[required_cols].copy()
+        df = df.where(pd.notnull(df), None)
+
+        records = []
+        for _, row in df.iterrows():
+            product_code = str(row.get('ProductCode', '')).strip()
+            if not product_code:
+                continue
+            records.append({
+                'ProductCode': product_code,
+                'ABC_Class': row.get('ABC_Class'),
+                'XYZ_Class': row.get('XYZ_Class'),
+                'note': row.get('Note')
+            })
+
+        if not records:
+            logger.warning("⚠️ 分類資料為空，略過上傳")
+            return
+
+        batch = self.db.batch()
+        batch_count = 0
+        total_updated = 0
+        skipped_count = 0
+
+        new_cache = self.local_cache.copy()
+
+        for item in records:
+            product_code = item['ProductCode']
+            cache_key = f"class:{product_code}"
+            current_hash = self._generate_classification_hash(item)
+
+            if cache_key in self.local_cache and self.local_cache[cache_key] == current_hash:
+                skipped_count += 1
+                continue
+
+            doc_ref = self.db.collection(collection_name).document(product_code)
+            doc_payload = {
+                'ABC_Class': item.get('ABC_Class'),
+                'XYZ_Class': item.get('XYZ_Class'),
+                'note': item.get('note')
+            }
+            batch.set(doc_ref, doc_payload, merge=True)
+
+            new_cache[cache_key] = current_hash
+            batch_count += 1
+            total_updated += 1
+
+            if batch_count >= 400:
+                batch.commit()
+                logger.info(f"   ...已更新 {total_updated} 筆異動分類")
+                batch = self.db.batch()
+                batch_count = 0
+
+        if batch_count > 0:
+            batch.commit()
+
+        self.local_cache = new_cache
+        self._save_cache()
+
+        logger.info("✨ 分類同步完成！")
         logger.info(f"   - 實際寫入: {total_updated} 筆 (消耗額度)")
         logger.info(f"   - 略過未變: {skipped_count} 筆 (節省額度)")

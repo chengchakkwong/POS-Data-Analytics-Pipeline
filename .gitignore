@@ -17,6 +17,7 @@ personal/
 config.ini
 settings.ini
 secrets.json
+serviceAccountKey.json
 
 # 憑證和密鑰文件
 *.key
