@@ -10,6 +10,7 @@ credentials/
 personal/
 
 # 環境變量和配置文件
+.cursorignore
 .env
 .env.local
 .env.*.local

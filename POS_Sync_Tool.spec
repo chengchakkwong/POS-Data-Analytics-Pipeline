@@ -15,6 +15,7 @@ my_hidden_imports = [
     'pyodbc',
     'dotenv',
     'pyarrow',
+    'firebase_admin',  # 明確加入 firebase_admin 避免漏抓
     'logger_config',
     'db_utils',
     'pos_service',
