@@ -99,13 +99,16 @@ DB_PWD=your_password
 DB_TRUST_CERT=yes
 ```
 
+**內部使用**：完整操作步驟（第一次使用、每日流程、預測與補貨）請見 **[docs/使用說明.md](docs/使用說明.md)**（使用說明書）。
+
 ## Project Structure / 檔案結構
 
-- `pos_system_v2.py`: Orchestrates sync + analytics pipeline.
-- `pos_service.py`: SQL Server integration and incremental sync.
-- `business_insights.py`: Core analytics (ABC, AdjustedCost, inventory health).
-- `db_utils.py`: DB connection and environment handling.
-- `environment.yml`: Reproducible dev environment.
+- `pos_system_v2.py`: 主入口，負責資料同步流程（Orchestrates sync pipeline）。
+- `pos_service.py`: SQL Server 連線與增量同步（SQL Server integration and incremental sync）。
+- `business_insights.py`: ABC/XYZ 分類、成本校正、庫存健康與策略標籤（Core analytics）。
+- `replenishment_forecasting.py`: 銷售預測與建議進貨量（補貨計畫產出）。
+- `db_utils.py`: 資料庫連線與環境變數（DB connection and environment handling）。
+- `environment.yml`: 開發環境設定（Reproducible dev environment）。
 
 ## Privacy & Data Handling / 隱私與資料處理
 
@@ -149,11 +152,13 @@ ABC 產品分級：基於利潤貢獻度（Pareto Principle）自動將數千種
 
 📁 檔案結構
 
-pos_system_v2.py: 系統主入口，統籌數據同步與分析流程。
+pos_system_v2.py: 系統主入口，統籌數據同步流程。
 
 pos_service.py: 負責與 SQL Server 對接及數據增量同步邏輯。
 
-business_insights.py: 核心商業邏輯模組，包含 ABC 分級與成本修正函式。
+business_insights.py: 核心商業邏輯模組，包含 ABC/XYZ 分級、成本修正與策略標籤。
+
+replenishment_forecasting.py: 銷售預測與建議進貨量（產出補貨計畫 CSV）。
 
 db_utils.py: 資料庫連線與環境變數管理封裝。
 

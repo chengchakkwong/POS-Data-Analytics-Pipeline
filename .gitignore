@@ -105,3 +105,5 @@ Base/
 
 # 文檔文件
 *.md
+!README.md
+!docs/使用說明.md
