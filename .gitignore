@@ -104,6 +104,10 @@ Base/
 *.parquet
 
 # 文檔文件
-*.md
-!README.md
-!docs/使用說明.md
+# 保留正式專案文件進版控；僅排除私用/草稿報告
+docs/private_reports/
+docs/ai_drafts/
+docs/_personal/
+docs/*_私用.md
+docs/*_草稿.md
+docs/*_AI參考.md
