@@ -83,23 +83,30 @@ class POSDataService:
             
         return df
     
-    def sync_daily_sales(self, cache_filename="vw_GoodsDailySales_cache.parquet"):
-        """增量同步每日銷售數據，輸出到 data/processed/"""
+
+    def sync_daily_sales(self, cache_dirname="vw_GoodsDailySales_partitioned"):
+        
+        """增量同步每日銷售數據，並依年月分區儲存到資料夾"""
         start_time = time.perf_counter()
-        cache_file = self.output_dir / cache_filename
+        
+        # 注意：這裡的 cache_dir 變成了一個「資料夾路徑」，而不是 .parquet 檔案
+        cache_dir = self.output_dir / cache_dirname 
 
-        # 判斷快取是否存在
-        if cache_file.exists():
-            df_old = pd.read_parquet(cache_file)
-            last_date = pd.to_datetime(df_old["rDate"].max())
+        # ---------------------------------------------------------
+        # 1. 判斷快取是否存在，找出最後同步日期
+        # ---------------------------------------------------------
+        if cache_dir.exists():
+            # 【優化點 1：Columnar 的威力】
+            # 不需要把幾十萬筆資料全部讀進來，我們「只讀取 rDate 這一欄」來找最大日期，瞬間完成！
+            df_dates = pd.read_parquet(cache_dir, columns=["rDate"])
+            last_date = pd.to_datetime(df_dates["rDate"].max())
             sync_start = (last_date - timedelta(days=1)).strftime("%Y-%m-%d")
-            logger.info(f"📅 發現現有快取，最後日期為 {last_date.date()}，從 {sync_start} 開始增量同步...")
+            logger.info(f"📅 發現分區快取，最後日期為 {last_date.date()}，從 {sync_start} 增量同步...")
         else:
-            df_old = pd.DataFrame()
             sync_start = "2024-01-01"
-            logger.info(f"ℹ️ 無現有快取，將從初始設定日期 {sync_start} 開始全量同步...")
+            logger.info(f"ℹ️ 無現有快取，將從 {sync_start} 開始全量同步並建立分區...")
 
-        logger.info(f"🔄 正在增量同步自 {sync_start} 起的銷售數據...")
+        logger.info(f"🔄 正在從資料庫獲取數據...")
 
         sql = """
             SELECT D.GoodsID, M.rDate, SUM(D.Quantity) AS TotalQty, SUM(D.FinalAmt) AS TotalAmt
@@ -112,23 +119,63 @@ class POSDataService:
 
         if df_new.empty:
             logger.info("✅ 無新數據。")
-            return df_old
+            return pd.DataFrame() # 依照你的需求，看要回傳空表還是怎樣處理
         
-        # 合併新舊數據並去重
-        df_all = pd.concat([df_old, df_new], ignore_index=True).drop_duplicates(
-            subset=["GoodsID", "rDate"], keep="last"
-        )
+        # ---------------------------------------------------------
+        # 2. 為新資料建立分區欄位 (year, month)
+        # ---------------------------------------------------------
+        df_new['rDate'] = pd.to_datetime(df_new['rDate'])
+        df_new['year'] = df_new['rDate'].dt.year.astype(str)
+        df_new['month'] = df_new['rDate'].dt.month.astype(str).str.zfill(2) # 補零變成 '01', '02'
+
+        # ---------------------------------------------------------
+        # 3. 找出這次更新「影響到」哪些分區，並讀取舊資料
+        # ---------------------------------------------------------
+        # 提取新資料牽涉到的 (年, 月) 組合
+        affected_partitions = df_new[['year', 'month']].drop_duplicates()
         
-        # 儲存快取
+        if cache_dir.exists():
+            # 建立 PyArrow 可以看懂的 filter 格式
+            # 例如：[[('year','==','2024'), ('month','==','03')], [('year','==','2024'), ('month','==','04')]]
+            filters = [
+                [('year', '==', row['year']), ('month', '==', row['month'])] 
+                for _, row in affected_partitions.iterrows()
+            ]
+            logger.info(f"📂 只讀取受影響的分區進行合併: {filters}")
+            
+            # 【優化點 2：條件式讀取】只把「受影響的月份」舊資料讀出來，不用讀取沒變動的歷史月份！
+            df_affected_old = pd.read_parquet(cache_dir, filters=filters)
+        else:
+            df_affected_old = pd.DataFrame()
+
+        # ---------------------------------------------------------
+        # 4. 合併新舊數據並去重 (範圍縮小到只有受影響的月份)
+        # ---------------------------------------------------------
+        df_combined = pd.concat([df_affected_old, df_new], ignore_index=True)
+        df_combined = df_combined.drop_duplicates(subset=["GoodsID", "rDate"], keep="last")
+        
+        # ---------------------------------------------------------
+        # 5. 寫回 Parquet (只覆寫受影響的分區)
+        # ---------------------------------------------------------
         try:
-            df_all.to_parquet(cache_file, compression="snappy")
-        except ImportError:
-            logger.error("❌ 儲存失敗：環境中缺少 Parquet 引擎 (pyarrow)。")
-            logger.error("💡 請在終端機執行：pip install pyarrow")
+            # 【優化點 3：自動分區覆寫魔法】
+            # existing_data_behavior='delete_matching' 會自動把受影響的那個月份整個砍掉，
+            # 替換成我們剛剛合併去重好的 df_combined。沒有變動的舊月份完全不會被動到！
+            df_combined.to_parquet(
+                cache_dir, 
+                engine='pyarrow',
+                partition_cols=['year', 'month'], 
+                compression="snappy",
+                existing_data_behavior='delete_matching' 
+            )
         except Exception as e:
-            logger.warning(f"⚠️ Snappy 壓縮失敗，嘗試 gzip: {e}", exc_info=True)
-            df_all.to_parquet(cache_file, compression="gzip")
+            logger.error(f"❌ 寫入分區失敗: {e}", exc_info=True)
+            logger.error("💡 請確保有安裝: pip install pyarrow")
         
         duration = time.perf_counter() - start_time
-        logger.info(f"💾 同步完成！共 {len(df_all):,} 筆，耗時 {duration:.2f} 秒")
-        return df_all
+        logger.info(f"💾 同步並分區完成！本次處理 {len(df_combined):,} 筆 (受影響分區)，耗時 {duration:.2f} 秒")
+        
+        return df_combined
+
+
+
