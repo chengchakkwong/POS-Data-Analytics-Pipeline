@@ -60,6 +60,74 @@ class FirebaseManager:
         unique_str = f"{item.get('ProductCode')}{item.get('ABC_Class')}{item.get('XYZ_Class')}{item.get('note')}"
         return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
 
+    def _generate_replenishment_hash(self, item):
+        """為補貨建議資料生成指紋，用於增量上傳快取"""
+        unique_str = (
+            f"{item.get('ProductCode')}"
+            f"{item.get('LastInCost')}"
+            f"{item.get('AvgCost')}"
+            f"{item.get('InboundLocation')}"
+            f"{item.get('第一次入貨量')}"
+            f"{item.get('Note描述')}"
+        )
+        return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
+
+    def upload_replenishment_data(self, df):
+        """
+        上傳補貨建議資料到 Firestore replenishment collection。
+        只更新有變動的 document，使用 cache key repl:{ProductCode}。
+        """
+        if df is None or df.empty:
+            logger.warning("⚠️ 沒有補貨資料需要上傳")
+            return
+
+        collection_name = 'replenishment'
+        logger.info(f"🚀 開始比對補貨資料 (共 {len(df)} 筆)...")
+
+        df = df.where(pd.notnull(df), None)
+        records = df.to_dict(orient='records')
+
+        batch = self.db.batch()
+        batch_count = 0
+        total_updated = 0
+        skipped_count = 0
+        new_cache = self.local_cache.copy()
+
+        for item in records:
+            product_code = str(item.get('ProductCode', '')).strip()
+            if not product_code:
+                continue
+
+            cache_key = f"repl:{product_code}"
+            current_hash = self._generate_replenishment_hash(item)
+
+            if cache_key in self.local_cache and self.local_cache[cache_key] == current_hash:
+                skipped_count += 1
+                continue
+
+            doc_ref = self.db.collection(collection_name).document(product_code)
+            batch.set(doc_ref, item, merge=True)
+
+            new_cache[cache_key] = current_hash
+            batch_count += 1
+            total_updated += 1
+
+            if batch_count >= 400:
+                batch.commit()
+                logger.info(f"   ...已更新 {total_updated} 筆補貨資料")
+                batch = self.db.batch()
+                batch_count = 0
+
+        if batch_count > 0:
+            batch.commit()
+
+        self.local_cache = new_cache
+        self._save_cache()
+
+        logger.info("✨ 補貨資料同步完成！")
+        logger.info(f"   - 實際寫入: {total_updated} 筆 (消耗額度)")
+        logger.info(f"   - 略過未變: {skipped_count} 筆 (節省額度)")
+
     def upload_stock_data(self, df_stock):
         """
         智慧上傳：只更新有變動的資料

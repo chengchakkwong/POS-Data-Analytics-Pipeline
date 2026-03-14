@@ -38,3 +38,34 @@
 - 用 `time.perf_counter()` 在函式開頭/結尾計時，並在 log 輸出本次處理筆數與耗時（秒），方便之後比對效能。
 
 ---
+
+## 2025-03-14 新增補貨建議 collection（replenishment）與 Transform 層
+
+### 今天做了什麼
+
+在「從 DB 抽資料上傳 Firebase」的流程中，新增**第二個 Firestore collection**，專門放補貨決策用的敏感資訊（成本、進貨來源、Note 解析），並抽成獨立的 **Transform 層**（`replenishment_service.py`），方便之後擴充補貨邏輯。
+
+### 改了什麼
+
+1. **新增 `replenishment_service.py`（Transform 層）**  
+   - `prepare(df_stock)`：接收庫存主檔，解析 `Note` →「第一次入貨量」（regex 抽獨立數字）、「Note描述」（其餘文字）。  
+   - 只輸出補貨用欄位：`ProductCode`, `LastInCost`, `AvgCost`, `InboundLocation`, `第一次入貨量`, `Note描述`。
+
+2. **`firebase_service.py`**  
+   - 新增 `_generate_replenishment_hash()`、`upload_replenishment_data(df)`。  
+   - 上傳至 collection **`replenishment`**，快取 key 為 `repl:{ProductCode}`，邏輯與現有 products 上傳一致（只更新有變動、batch 400）。
+
+3. **`POS_Sync_Tool.py`**  
+   - 同一次 `get_stock_master_data()` 取得的 `df_stock` 先上傳 **products**（基本資訊），再經 `prepare_replenishment(df_stock)` 加工後上傳 **replenishment**（補貨建議用）。
+
+### 為什麼這樣改
+
+- 產品基本資訊與成本/備註分開存放，方便權限與前端分離（公開 vs 內部補貨建議）。  
+- 補貨邏輯獨立成 `replenishment_service`，之後加「建議補貨量」「安全庫存」等計算時，只改這一層，不汙染 `pos_service` 或 Sync Tool。
+
+### 下次要做的優化
+
+- 在 `replenishment_service` 或後續流程中擴充補貨量建議、安全庫存等計算後再寫入 `replenishment`。  
+- 若有需要，可在 `docs/使用說明.md` 或 README 補充 Firebase 兩大 collection（products / replenishment）的用途與欄位說明。
+
+---

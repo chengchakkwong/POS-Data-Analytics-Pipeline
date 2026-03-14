@@ -2,7 +2,8 @@ import time
 import logging
 from db_utils import POSDatabaseManager
 from pos_service import POSDataService
-from firebase_service import FirebaseManager # 記得確保這個檔案在旁邊
+from firebase_service import FirebaseManager
+from replenishment_service import prepare as prepare_replenishment
 import logger_config  # 導入統一的日誌配置
 
 # 使用統一的日誌配置
@@ -68,7 +69,18 @@ def main():
         else:
             logger.warning("⚠️ 查無資料，跳過上傳步驟。")
 
-
+        # [Transform + Load] 補貨建議：加工後上傳至 replenishment collection
+        if df_stock is not None and not df_stock.empty:
+            try:
+                df_repl = prepare_replenishment(df_stock)
+                if not df_repl.empty:
+                    logger.info(f"準備上傳 {len(df_repl)} 筆補貨建議資料到 Firebase...")
+                    fb_mgr.upload_replenishment_data(df_repl)
+                    logger.info("✅ 補貨建議上傳成功！")
+                else:
+                    logger.warning("⚠️ 補貨加工後無資料，跳過上傳。")
+            except Exception as e:
+                logger.error(f"❌ 補貨建議上傳失敗: {e}", exc_info=True)
 
         # 4. 統計成果
         logger.info("")
