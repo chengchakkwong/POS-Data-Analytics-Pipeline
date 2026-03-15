@@ -67,8 +67,8 @@ class FirebaseManager:
             f"{item.get('LastInCost')}"
             f"{item.get('AvgCost')}"
             f"{item.get('InboundLocation')}"
-            f"{item.get('第一次入貨量')}"
-            f"{item.get('Note描述')}"
+            f"{item.get('FirstOrderQty')}"
+            f"{item.get('NoteDescription')}"
         )
         return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
 
@@ -106,7 +106,7 @@ class FirebaseManager:
                 continue
 
             doc_ref = self.db.collection(collection_name).document(product_code)
-            batch.set(doc_ref, item, merge=True)
+            batch.set(doc_ref, item, merge=False)  # 整份覆寫，僅保留英文欄位，舊中文欄位會被清除
 
             new_cache[cache_key] = current_hash
             batch_count += 1

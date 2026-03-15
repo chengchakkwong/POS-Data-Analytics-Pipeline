@@ -13,8 +13,8 @@ REPLENISHMENT_COLS = [
     'LastInCost',
     'AvgCost',
     'InboundLocation',
-    '第一次入貨量',
-    'Note描述',
+    'FirstOrderQty',
+    'NoteDescription',
 ]
 
 
@@ -22,7 +22,7 @@ def prepare(df_stock):
     """
     將庫存主檔加工成補貨建議用 DataFrame。
 
-    - 解析 Note：抽出「第一次入貨量」（獨立數字）與「Note描述」（其餘文字）
+    - 解析 Note：抽出 FirstOrderQty（獨立數字）與 NoteDescription（其餘文字）
     - 只保留補貨相關欄位
 
     :param df_stock: pos_service.get_stock_master_data() 回傳的 DataFrame
@@ -36,16 +36,16 @@ def prepare(df_stock):
 
     # 確保 Note 為字串再解析
     if 'Note' not in df.columns:
-        logger.warning("⚠️ 庫存主檔無 Note 欄位，將不產生 第一次入貨量 / Note描述")
+        logger.warning("⚠️ 庫存主檔無 Note 欄位，將不產生 FirstOrderQty / NoteDescription")
         df['Note'] = ''
     note_series = df['Note'].astype(str).replace('nan', '')
 
-    # 第一次入貨量：獨立數字 (?:^|\s)(\d+)(?:\s|$)
-    df['第一次入貨量'] = note_series.str.extract(r'(?:^|\s)(\d+)(?:\s|$)', expand=False)
+    # FirstOrderQty：從 Note 抽出獨立數字 (?:^|\s)(\d+)(?:\s|$)
+    df['FirstOrderQty'] = note_series.str.extract(r'(?:^|\s)(\d+)(?:\s|$)', expand=False)
 
-    # Note描述：移除該數字後剩餘文字
-    df['Note描述'] = note_series.str.replace(r'(?:^|\s)\d+(?:\s|$)', ' ', regex=True).str.strip()
-    df['Note描述'] = df['Note描述'].replace('', None)
+    # NoteDescription：移除該數字後剩餘文字
+    df['NoteDescription'] = note_series.str.replace(r'(?:^|\s)\d+(?:\s|$)', ' ', regex=True).str.strip()
+    df['NoteDescription'] = df['NoteDescription'].replace('', None)
 
     # 只保留存在的補貨欄位
     valid_cols = [c for c in REPLENISHMENT_COLS if c in df.columns]

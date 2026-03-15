@@ -40,49 +40,34 @@ def main():
         except Exception as e:
             logger.error(f"❌ 抓取商品庫存主檔失敗: {e}", exc_info=True)
 
-        # [Load] 上傳到 Firebase
-        # 4. [Load] 上傳到 Firebase
+        # 4. [Load] 上傳到 Firebase：同時寫入 products 與 replenishment
         if df_stock is not None and not df_stock.empty:
             try:
-                # 定義目標欄位
+                # 定義目標欄位（products）
                 target_cols = ['ProductCode', 'Barcode', 'Name', 'CurrStock', 'RetailPrice', 'Category', 'Supplier']
-                
-                # 檢查 DataFrame 中實際存在的欄位 (避免因 SQL 沒抓到某些欄位而報錯)
                 valid_cols = [col for col in target_cols if col in df_stock.columns]
-                
-                # 顯示篩選資訊
                 if len(valid_cols) < len(target_cols):
                     missing = set(target_cols) - set(valid_cols)
                     logger.warning(f"⚠️ 注意: SQL 查詢結果缺少以下欄位，將略過: {missing}")
-                
-                # 執行篩選
                 df_final = df_stock[valid_cols]
-                
-                logger.info(f"準備上傳 {len(df_final)} 筆資料到 Firebase...")
-                
-                # 這行就是關鍵！把 df 直接丟給上傳器
+
+                logger.info(f"準備上傳 {len(df_final)} 筆資料到 Firebase (products + replenishment)...")
                 fb_mgr.upload_stock_data(df_final)
-                
-                logger.info("✅ Firebase 上傳成功！")
+
+                df_repl = prepare_replenishment(df_stock)
+                if not df_repl.empty:
+                    logger.info(f"準備上傳 {len(df_repl)} 筆補貨建議資料到 replenishment...")
+                    fb_mgr.upload_replenishment_data(df_repl)
+                    logger.info("✅ Firebase（products + replenishment）上傳成功！")
+                else:
+                    logger.warning("⚠️ 補貨加工後無資料，跳過 replenishment 上傳。")
+                    logger.info("✅ Firebase（products）上傳成功！")
             except Exception as e:
                 logger.error(f"❌ Firebase 上傳失敗: {e}", exc_info=True)
         else:
             logger.warning("⚠️ 查無資料，跳過上傳步驟。")
 
-        # [Transform + Load] 補貨建議：加工後上傳至 replenishment collection
-        if df_stock is not None and not df_stock.empty:
-            try:
-                df_repl = prepare_replenishment(df_stock)
-                if not df_repl.empty:
-                    logger.info(f"準備上傳 {len(df_repl)} 筆補貨建議資料到 Firebase...")
-                    fb_mgr.upload_replenishment_data(df_repl)
-                    logger.info("✅ 補貨建議上傳成功！")
-                else:
-                    logger.warning("⚠️ 補貨加工後無資料，跳過上傳。")
-            except Exception as e:
-                logger.error(f"❌ 補貨建議上傳失敗: {e}", exc_info=True)
-
-        # 4. 統計成果
+        # 5. 統計成果
         logger.info("")
         logger.info("="*40)            
         total_time = time.perf_counter() - start_all

@@ -66,6 +66,69 @@
 ### 下次要做的優化
 
 - 在 `replenishment_service` 或後續流程中擴充補貨量建議、安全庫存等計算後再寫入 `replenishment`。  
-- 若有需要，可在 `docs/使用說明.md` 或 README 補充 Firebase 兩大 collection（products / replenishment）的用途與欄位說明。
+- ~~若有需要，可在 `docs/使用說明.md` 或 README 補充 Firebase 兩大 collection（products / replenishment）的用途與欄位說明。~~ → 已於 2025-03-15 新增獨立說明文件並於使用說明中連結。
+
+---
+
+## 2025-03-15 新增 Firestore 雙 Collection 設計與安全說明文件
+
+### 今天做了什麼
+
+依 **docs/DEV_SOP.md** 開發後流程，為「products / replenishment 雙 collection」設計補上正式說明文件，並在使用說明中加入連結，方便查閱與交接。
+
+### 改了什麼
+
+1. **新增 `docs/Firestore_雙Collection設計與安全說明.md`**  
+   - 說明設計目的與兩 collection 用途、讀取對象。  
+   - 說明為何拆成兩個 collection：兩套獨立 Security Rules、前端讀取效能、敏感資料保護。  
+   - 資料對照表（主要欄位與來源）。  
+   - Firestore Security Rules 設定建議（products / replenishment 範例）。  
+   - 與專案檔案對照（POS_Sync_Tool、firebase_service、replenishment_service）。
+
+2. **更新 `docs/使用說明.md`**  
+   - 在「二之一、Firebase 同步」的 Firestore 兩大 collection 對照表後，新增一句設計說明並連結至上述文件。
+
+### 為什麼這樣改
+
+- 雙 collection 設計（非冗餘、依用途與權限拆分）需要可對照的說明，方便後續設定 Security Rules 與交接。  
+- 依 DEV_SOP「開發後」：有文件或規格變更時更新對應文件，並在 DevLog 記錄本次變更。
+
+### 下次要做的優化
+
+- 若實際在 Firebase Console 調整過 Security Rules，可把最終規則片段補進 `Firestore_雙Collection設計與安全說明.md` 或另存為範例檔供部署參考。
+
+---
+
+## 2025-03-15 統一補貨欄位英文命名與合併 Firebase 上傳區塊
+
+### 今天做了什麼
+
+將 replenishment 的補貨欄位改為英文以統一變數規則，並在 `POS_Sync_Tool` 的同一區塊內同時上傳 products 與 replenishment，移除重複的補貨上傳區塊；同步更新相關文件與 Firestore 寫入方式（整份覆寫以清除舊中文欄位）。
+
+### 改了什麼
+
+1. **`replenishment_service.py`**  
+   - `第一次入貨量` → `FirstOrderQty`，`Note描述` → `NoteDescription`（`REPLENISHMENT_COLS` 與程式內欄位命名、註解一致）。
+
+2. **`firebase_service.py`**  
+   - `_generate_replenishment_hash()` 改為使用 `FirstOrderQty`、`NoteDescription`。  
+   - `upload_replenishment_data()` 改為 `batch.set(..., merge=False)`，整份覆寫 document，下次同步後 Firestore 僅保留英文欄位，舊中文欄位會被清除。
+
+3. **`POS_Sync_Tool.py`**  
+   - 在「上傳到 Firebase」單一區塊內：先 `upload_stock_data(df_final)`，再 `prepare_replenishment(df_stock)` → `upload_replenishment_data(df_repl)`，log 改為「products + replenishment」。  
+   - 刪除原先獨立的補貨上傳區塊（約 71–85 行），避免重複上傳。
+
+4. **文件**  
+   - `docs/Firestore_雙Collection設計與安全說明.md`、`docs/使用說明.md` 中 replenishment 欄位表與說明改為 `FirstOrderQty`、`NoteDescription`。
+
+### 為什麼這樣改
+
+- 專案其餘欄位多為英文，補貨欄位改英文可統一命名、方便維護與前端對接。  
+- 上傳邏輯集中在一處，流程較清晰；replenishment 用整份覆寫可一次遷移既有已上傳的中文欄位至英文，無須另寫遷移腳本。
+
+### 下次要做的優化
+
+- 若前端或其他服務曾讀取 `第一次入貨量`、`Note描述`，需改為讀取 `FirstOrderQty`、`NoteDescription`。  
+- 在 `replenishment_service` 或後續流程中擴充補貨量建議、安全庫存等計算後再寫入 `replenishment`（延續 2025-03-14 待辦）。
 
 ---
