@@ -82,7 +82,32 @@ class POSDataService:
             logger.info(f"✅ 今日完整庫存清單已更新: {output_file}")
             
         return df
-    
+
+    def get_inbound_movements_for_min_multiple(self, years=2):
+        """
+        讀取入貨紀錄（MoveTypeID=1），供推算 Min/Multiple 使用。
+        只取最近 years 年、三欄：GoodsNo(=ProductCode), ChQty, BillDate。
+        """
+        from datetime import date
+        end_date = date.today()
+        start_date = end_date - timedelta(days=int(years) * 365)
+        # BillDate 在 DB 多為 YYYYMMDD 整數
+        bill_start = int(start_date.strftime("%Y%m%d"))
+        bill_end = int(end_date.strftime("%Y%m%d"))
+        sql = (
+            "SELECT GoodsNo, ChQty, BillDate "
+            "FROM dbo.GoodsStockMovement "
+            "WHERE MoveTypeID = 1 AND ChQty > 0 "
+            f"AND BillDate >= {bill_start} AND BillDate <= {bill_end} "
+            "ORDER BY GoodsNo, BillDate"
+        )
+        logger.info(f"📋 正在讀取入貨紀錄 (MoveTypeID=1, 最近 {years} 年)...")
+        df = self.db.execute_query(sql)
+        if not df.empty:
+            logger.info(f"✅ 已取得 {len(df)} 筆入貨紀錄")
+        else:
+            logger.info("ℹ️ 無入貨紀錄")
+        return df
 
     def sync_daily_sales(self, cache_dirname="vw_GoodsDailySales_partitioned"):
         

@@ -76,6 +76,8 @@ class FirebaseManager:
         """
         上傳補貨建議資料到 Firestore replenishment collection。
         只更新有變動的 document，使用 cache key repl:{ProductCode}。
+        merge=True：僅更新本次提供的欄位，不覆蓋其他欄位（如 guessed_min、guessed_multiple），
+        方便 Min/Multiple 估算流程獨立寫入。
         """
         if df is None or df.empty:
             logger.warning("⚠️ 沒有補貨資料需要上傳")
@@ -106,7 +108,7 @@ class FirebaseManager:
                 continue
 
             doc_ref = self.db.collection(collection_name).document(product_code)
-            batch.set(doc_ref, item, merge=False)  # 整份覆寫，僅保留英文欄位，舊中文欄位會被清除
+            batch.set(doc_ref, item, merge=True)  
 
             new_cache[cache_key] = current_hash
             batch_count += 1
