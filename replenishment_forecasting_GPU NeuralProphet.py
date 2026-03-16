@@ -183,7 +183,8 @@ def run_single_sku_forecast(item, sales_df, next_month, cat_index_map):
 
 def main():
     input_stock = "data/processed/DetailGoodsStockToday.csv"
-    input_sales = "data/processed/vw_GoodsDailySales_cache.parquet"
+    # 使用分區版銷售快取資料夾（由 POSDataService.sync_daily_sales 產生）
+    input_sales = "data/processed/vw_GoodsDailySales_partitioned"
     output_path = "data/insights/final_inventory_plan.csv"
     
     print(f"🚀 啟動優化版智慧補貨系統 (裝置: {DEVICE.upper()})")

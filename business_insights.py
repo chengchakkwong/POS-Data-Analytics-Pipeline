@@ -202,7 +202,8 @@ def upload_classification_to_firebase(classification_df: pd.DataFrame) -> None:
 
 if __name__ == "__main__":
     input_stock = "data/processed/DetailGoodsStockToday.csv"
-    input_sales = "data/processed/vw_GoodsDailySales_cache.parquet"
+    # 使用分區版銷售快取資料夾（由 POSDataService.sync_daily_sales 產生）
+    input_sales = "data/processed/vw_GoodsDailySales_partitioned"
     output_path = "data/insights/abc_xyz_analysis.csv"
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     

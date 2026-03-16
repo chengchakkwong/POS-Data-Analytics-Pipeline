@@ -335,13 +335,20 @@ class FirebaseManager:
                 skipped_count += 1
                 continue
 
-            doc_ref = self.db.collection(collection_name).document(product_code)
+            # 要寫入的 payload：只含 ABC/XYZ 與 note
             doc_payload = {
                 'ABC_Class': item.get('ABC_Class'),
                 'XYZ_Class': item.get('XYZ_Class'),
                 'note': item.get('note')
             }
-            batch.set(doc_ref, doc_payload, merge=True)
+
+            # 1) 寫入主要 collection（預設 products）
+            primary_ref = self.db.collection(collection_name).document(product_code)
+            batch.set(primary_ref, doc_payload, merge=True)
+
+            # 2) 同步一份到 replenishment collection，方便補貨後台直接查詢 ABC/XYZ
+            repl_ref = self.db.collection('replenishment').document(product_code)
+            batch.set(repl_ref, doc_payload, merge=True)
 
             new_cache[cache_key] = current_hash
             batch_count += 1
