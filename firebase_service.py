@@ -72,6 +72,78 @@ class FirebaseManager:
         )
         return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
 
+    def _generate_min_multiple_hash(self, item):
+        """為 guessed_min / guessed_multiple 生成指紋，用於增量上傳快取"""
+        unique_str = (
+            f"{item.get('ProductCode', '')}"
+            f"{item.get('guessed_min')}"
+            f"{item.get('guessed_multiple')}"
+        )
+        return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
+
+    def upload_guessed_min_multiple(self, df):
+        """
+        僅將 guessed_min、guessed_multiple 寫入 Firestore replenishment collection。
+        使用 cache key repl_min_mult:{ProductCode}，只更新有變動的 document；merge=True 不覆蓋其他欄位。
+        """
+        if df is None or df.empty:
+            logger.warning("⚠️ 沒有 Min/Multiple 資料需要上傳")
+            return
+
+        collection_name = 'replenishment'
+        required = ['ProductCode', 'guessed_min', 'guessed_multiple']
+        if not all(c in df.columns for c in required):
+            logger.warning(f"⚠️ 缺少欄位 {required}，跳過 guessed_min/guessed_multiple 上傳")
+            return
+
+        df = df.where(pd.notnull(df), None)
+        records = df.to_dict(orient='records')
+
+        batch = self.db.batch()
+        batch_count = 0
+        total_updated = 0
+        skipped_count = 0
+        new_cache = self.local_cache.copy()
+
+        for item in records:
+            product_code = str(item.get('ProductCode', '')).strip()
+            if not product_code:
+                continue
+
+            cache_key = f"repl_min_mult:{product_code}"
+            current_hash = self._generate_min_multiple_hash(item)
+
+            if cache_key in self.local_cache and self.local_cache[cache_key] == current_hash:
+                skipped_count += 1
+                continue
+
+            payload = {
+                'guessed_min': item.get('guessed_min'),
+                'guessed_multiple': item.get('guessed_multiple'),
+            }
+            doc_ref = self.db.collection(collection_name).document(product_code)
+            batch.set(doc_ref, payload, merge=True)
+
+            new_cache[cache_key] = current_hash
+            batch_count += 1
+            total_updated += 1
+
+            if batch_count >= 400:
+                batch.commit()
+                logger.info(f"   ...已更新 {total_updated} 筆 guessed_min/guessed_multiple")
+                batch = self.db.batch()
+                batch_count = 0
+
+        if batch_count > 0:
+            batch.commit()
+
+        self.local_cache = new_cache
+        self._save_cache()
+
+        logger.info("✨ guessed_min / guessed_multiple 同步完成！")
+        logger.info(f"   - 實際寫入: {total_updated} 筆 (消耗額度)")
+        logger.info(f"   - 略過未變: {skipped_count} 筆 (節省額度)")
+
     def upload_replenishment_data(self, df):
         """
         上傳補貨建議資料到 Firestore replenishment collection。
