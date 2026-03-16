@@ -43,11 +43,19 @@
 
 | Collection       | 主要欄位（示意） |
 |------------------|------------------|
-| **products**     | ProductCode, Barcode, Name, CurrStock, RetailPrice, Category, Supplier |
-| **replenishment**| ProductCode, LastInCost, AvgCost, InboundLocation, FirstOrderQty, NoteDescription |
+| **products**     | ProductCode, Barcode, Name, CurrStock, RetailPrice, Category, Supplier，以及其他庫存主檔欄位 |
+| **replenishment**| 同 products 全部欄位 + LastInCost, AvgCost, InboundLocation, FirstOrderQty, NoteDescription, guessed_min, guessed_multiple |
 
 - **products**：來自 `pos_service.get_stock_master_data()`，經欄位篩選後上傳。
-- **replenishment**：同一份庫存主檔經 `replenishment_service.prepare()` 加工（解析 Note、補貨欄位）後上傳。
+- **replenishment**：同一份庫存主檔經 `replenishment_service.prepare()` 加工（解析 Note、補貨欄位）後上傳，並在後續流程由 `upload_guessed_min_multiple()` 寫入 `guessed_min` / `guessed_multiple`。
+
+> 更新：在目前版本中，`replenishment` 的上游已改為直接帶著 `df_stock` 的全部欄位，再附加補貨欄位後上傳，因此：
+>
+> - 每一筆 `replenishment/{ProductCode}` document 會同時包含：
+>   - 與 `products/{ProductCode}` 相同的一整包商品欄位（例如 ProductCode, Barcode, Name, CurrStock, RetailPrice, Category, Supplier，以及其他庫存主檔欄位）。
+>   - 補貨專用欄位：LastInCost, AvgCost, InboundLocation, FirstOrderQty, NoteDescription 等。
+>   - 後續估算流程寫入的 guessed_min / guessed_multiple。
+> - 好處是：在做補貨決策或權限判斷時，僅查 `replenishment` 一個 collection 即可，不需要再 join `products`。
 
 ---
 
@@ -76,6 +84,32 @@ match /replenishment/{productId} {
 ```
 
 實際撰寫規則時請參照 [Firestore Security Rules 文件](https://firebase.google.com/docs/firestore/security/get-started)，並依專案登入與權限設計調整。
+
+---
+
+## 五、Hash 與快取策略（增量上傳）
+
+同步程式為了節省 Firestore 寫入量，使用本地快取檔與 Hash 來判斷「哪些 document 需要重寫」。
+
+- **本地快取檔**：`data/sync_cache.json`
+  - 由 `firebase_service.FirebaseManager` 在初始化時讀入 (`_load_cache()`)，結束或同步後寫回 (`_save_cache()`)。
+  - 以 `ProductCode` 或自訂 cache key（如 `repl:{ProductCode}`、`repl_min_mult:{ProductCode}`）作為索引。
+
+- **products：`upload_stock_data()`**
+  - 透過 `_generate_hash(item)` 產生該筆商品的指紋：
+    - 使用「該筆紀錄的全部欄位」，先依欄位名稱排序後，以 `key=value` 形式串接，再用 MD5 計算 Hash。
+    - 唯一例外：**忽略 `AvgCost` 欄位**，避免單純成本平均值的更新就造成大量重寫。
+  - 若 Hash 與快取中記錄一致，則視為「未變」，略過寫入；否則才加入 batch 寫入 `products/{ProductCode}`。
+
+- **replenishment：`upload_replenishment_data()`**
+  - 透過 `_generate_replenishment_hash(item)` 產生補貨紀錄指紋：
+    - 規則與 `_generate_hash` 一致：使用該筆補貨紀錄的全部欄位（同樣忽略 `AvgCost`），以 `key=value` 串接後做 MD5。
+  - 若 Hash 未變則略過，否則寫入 `replenishment/{ProductCode}`（`merge=True`，只更新本次提供欄位）。
+
+- **guessed_min / guessed_multiple：`upload_guessed_min_multiple()`**
+  - 使用 `_generate_min_multiple_hash(item)`，僅依 `ProductCode`、`guessed_min`、`guessed_multiple` 三個欄位判斷是否需要更新，並以 `merge=True` 寫入同一份 `replenishment/{ProductCode}` document。
+
+> 若需要在程式邏輯變更後「強制全量重寫」（例如新增欄位，想讓所有既有 document 也帶上），可以人工刪除 `data/sync_cache.json` 再執行同步工具；這次會視為首次上傳，全部 document 重新寫入，之後仍回到上述的增量同步邏輯。
 
 ---
 

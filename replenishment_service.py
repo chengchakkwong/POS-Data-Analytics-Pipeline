@@ -27,10 +27,11 @@ def prepare(df_stock):
     將庫存主檔加工成補貨建議用 DataFrame。
 
     - 解析 Note：抽出 FirstOrderQty（獨立數字）與 NoteDescription（其餘文字）
-    - 只保留補貨相關欄位
+    - 在原本庫存欄位上，額外補上補貨相關欄位，
+      讓 replenishment collection 同時擁有 products 的欄位與補貨欄位
 
     :param df_stock: pos_service.get_stock_master_data() 回傳的 DataFrame
-    :return: 僅含 REPLENISHMENT_COLS 的 DataFrame，若缺欄位則跳過該欄
+    :return: 保留原始 df_stock 全部欄位，並附加 REPLENISHMENT_COLS 中可計算出的欄位
     """
     if df_stock is None or df_stock.empty:
         logger.warning("⚠️ 庫存主檔為空，跳過補貨加工")
@@ -51,13 +52,14 @@ def prepare(df_stock):
     df['NoteDescription'] = note_series.str.replace(r'(?:^|\s)\d+(?:\s|$)', ' ', regex=True).str.strip()
     df['NoteDescription'] = df['NoteDescription'].replace('', None)
 
-    # 只保留存在的補貨欄位
+    # 檢查補貨相關欄位是否齊全（僅用於告警，不再裁切欄位）
     valid_cols = [c for c in REPLENISHMENT_COLS if c in df.columns]
     if len(valid_cols) < len(REPLENISHMENT_COLS):
         missing = set(REPLENISHMENT_COLS) - set(valid_cols)
-        logger.warning(f"⚠️ 補貨資料缺少欄位，將略過: {missing}")
+        logger.warning(f"⚠️ 補貨資料缺少欄位: {missing}")
 
-    return df[valid_cols]
+    # 回傳完整欄位：products 用的商品欄位 + 補貨欄位
+    return df
 
 
 def guess_min_and_multiple(history_records, threshold_ratio=0.6):

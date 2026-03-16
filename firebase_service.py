@@ -47,11 +47,21 @@ class FirebaseManager:
     def _generate_hash(self, item):
         """
         為單筆商品資料生成指紋 (Hash)
-        如果商品名稱、價格、庫存都沒變，Hash 就不會變
+        使用「全部欄位」偵測變動，但忽略 AvgCost：
+        - 任何欄位（除了 AvgCost）只要有變化，就會觸發重新上傳
+        - 以欄位名稱排序後組合，確保順序穩定
         """
-        # 將關鍵欄位串接成字串
-        unique_str = f"{item.get('ProductCode')}{item.get('CurrStock')}{item.get('RetailPrice')}{item.get('Name')}"
-        return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
+        if not isinstance(item, dict):
+            return ""
+
+        parts = []
+        for key in sorted(item.keys()):
+            if key == "AvgCost":
+                continue
+            parts.append(f"{key}={item.get(key)}")
+
+        unique_str = "|".join(parts)
+        return hashlib.md5(unique_str.encode("utf-8")).hexdigest()
 
     def _generate_classification_hash(self, item):
         """
@@ -61,16 +71,23 @@ class FirebaseManager:
         return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
 
     def _generate_replenishment_hash(self, item):
-        """為補貨建議資料生成指紋，用於增量上傳快取"""
-        unique_str = (
-            f"{item.get('ProductCode')}"
-            f"{item.get('LastInCost')}"
-            f"{item.get('AvgCost')}"
-            f"{item.get('InboundLocation')}"
-            f"{item.get('FirstOrderQty')}"
-            f"{item.get('NoteDescription')}"
-        )
-        return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
+        """
+        為補貨建議資料生成指紋，用於增量上傳快取。
+        規則與 _generate_hash 一致：
+        - 使用該筆補貨紀錄的「全部欄位」偵測變動
+        - 唯一例外：忽略 AvgCost，不讓 AvgCost 影響是否重傳
+        """
+        if not isinstance(item, dict):
+            return ""
+
+        parts = []
+        for key in sorted(item.keys()):
+            if key == "AvgCost":
+                continue
+            parts.append(f"{key}={item.get(key)}")
+
+        unique_str = "|".join(parts)
+        return hashlib.md5(unique_str.encode("utf-8")).hexdigest()
 
     def _generate_min_multiple_hash(self, item):
         """為 guessed_min / guessed_multiple 生成指紋，用於增量上傳快取"""

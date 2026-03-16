@@ -235,3 +235,46 @@
 ### 下次要做的優化
 
 - 若實務上出現「小樣本卻明顯誤判」的案例，再考慮可選參數（例如 `small_sample_strict=True`）或門檻微調；目前維持現狀。
+
+---
+
+## 2025-03-16 Firestore 同步欄位擴充與 Hash 全欄位比對（忽略 AvgCost）
+
+### 今天做了什麼
+
+- 調整補貨同步流程，讓 **`replenishment` collection 一筆文件同時包含 products 全部欄位 + 補貨欄位**，方便後續權限與計算只看一個 collection。
+- 更新 Firebase 增量同步的 Hash 策略：
+  - `products`：改為使用「該筆商品的全部欄位」產生 Hash，**唯獨忽略 `AvgCost`**。任何欄位（除了 `AvgCost`）變動都會觸發重寫。
+  - `replenishment`：同樣改為以「該筆補貨紀錄的全部欄位」產生 Hash，**唯獨忽略 `AvgCost`**。補貨欄位或商品欄位任一變動，就會觸發重寫。
+- 在 `DEV_SOP` 補充 Firebase 同步與快取的說明，整理雙 collection 與快取檔 `data/sync_cache.json` 的關係。
+
+### 改了什麼
+
+1. **`replenishment_service.py`**  
+   - `prepare(df_stock)` 不再只回傳補貨欄位，改為：在原本的 `df_stock` 上解析 `Note` 產生 `FirstOrderQty`、`NoteDescription`，並保留原有的所有商品欄位，讓上傳到 `replenishment` 的資料 = products 全欄位 + 補貨欄位。
+
+2. **`firebase_service.py`**  
+   - `_generate_hash(item)`：
+     - 由原本僅使用 `ProductCode`、`CurrStock`、`RetailPrice`、`Name`，改為使用該筆紀錄的「全部欄位」，**排序後以 `key=value` 串接產生字串，再做 MD5**。
+     - 唯一例外：忽略 `AvgCost` 欄位，不讓 `AvgCost` 單獨變動就觸發重寫。
+   - `_generate_replenishment_hash(item)`：
+     - 與 `_generate_hash` 規則一致，改為使用該筆補貨紀錄的「全部欄位」（同樣忽略 `AvgCost`）來產生 Hash，確保只要任一欄位（除 `AvgCost`）變動就會重新寫入 `replenishment`。
+   - 保留原有 `_generate_min_multiple_hash()` 與 `upload_guessed_min_multiple()` 的設計，只根據 `ProductCode`、`guessed_min`、`guessed_multiple` 判斷是否需要重寫這兩個欄位。
+
+3. **`docs/DEV_SOP.md`**  
+   - 新增「Firebase 同步與快取（特別約定）」一節，說明：
+     - `POS_Sync_Tool.py` 如何同時寫入 `products` 與 `replenishment`。
+     - 本地快取檔 `data/sync_cache.json` 的角色。
+     - Hash 規則改為「全欄位（忽略 AvgCost）」之後，如何在需要時透過刪除快取檔做一次全量重寫。
+
+### 為什麼這樣改
+
+- 實務上在後台補貨決策、權限判斷與計算時，**習慣只看 `replenishment` 一個 collection**，因此讓它包含 `products` 的所有欄位可以減少 join、簡化前後端邏輯。
+- 先前的增量同步只比對少數欄位，會出現「新增／修改其他欄位卻沒觸發重寫」的情況；改成「全欄位 Hash（忽略 AvgCost）」後，資料一致性更有保障，同時保留「AvgCost 可以改很多次而不重寫」的彈性。
+- 將這些約定寫進 DEV_SOP 與 docs，之後自己回頭看或交接時，能快速理解 Firestore 雙 collection 與快取的設計。
+
+### 下次要做的優化
+
+- 若實際使用中發現 Firestore 寫入量過大，可以再評估：
+  - 是否要把某些變動頻繁但不關鍵的欄位排除在 Hash 之外（類似 `AvgCost` 的處理）。
+  - 是否增加工具指令（例如小腳本）來安全地重建或清除 `data/sync_cache.json`，避免手動刪檔出錯。
