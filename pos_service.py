@@ -83,6 +83,28 @@ class POSDataService:
             
         return df
 
+    def get_supplier_info(self):
+        """
+        從資料庫讀取 dbo.SupplierInfo 供應商主檔。
+        回傳欄位：SID, ID, Name, Name2, TelNo, FaxNo, Addr, EmailAddr, ConPerson, Department, Remark。
+        """
+        logger.info("📋 正在讀取 SupplierInfo...")
+        sql = """
+            SELECT Name
+            FROM dbo.ProductType2
+            ORDER BY SID
+        """
+        df = self.db.execute_query(sql)
+        if not df.empty:
+            text_cols = ['Name']
+            for col in text_cols:
+                if col in df.columns:
+                    df[col] = df[col].astype(str).str.replace(r'[\n\r\t]+', ' ', regex=True).str.strip()
+            logger.info(f"✅ 已取得 {len(df)} 筆供應商資料")
+        else:
+            logger.info("ℹ️ SupplierInfo 無資料")
+        return df
+
     def get_inbound_movements_for_min_multiple(self, years=2):
         """
         讀取入貨紀錄（MoveTypeID=1），供推算 Min/Multiple 使用。

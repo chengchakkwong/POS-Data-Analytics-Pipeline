@@ -161,6 +161,54 @@ class FirebaseManager:
         logger.info(f"   - 實際寫入: {total_updated} 筆 (消耗額度)")
         logger.info(f"   - 略過未變: {skipped_count} 筆 (節省額度)")
 
+    def _safe_doc_id(self, value):
+        """Firestore document ID 不可含 / \\ 等字元，轉成底線。"""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return ""
+        s = str(value).strip()
+        for c in r'/\:*?"<>|':
+            s = s.replace(c, '_')
+        return s or ""
+
+    def upload_supplier_data(self, df):
+        """
+        將供應商名單上傳至 Firestore collection「supplier」。
+        document ID 依序採用：ID 欄位、SID 欄位、否則用 Name（會做安全字元替換）。
+        """
+        if df is None or df.empty:
+            logger.warning("⚠️ 沒有供應商資料需要上傳")
+            return
+
+        collection_name = 'supplier'
+        logger.info(f"🚀 開始上傳供應商資料至 {collection_name} (共 {len(df)} 筆)...")
+
+        df = df.where(pd.notnull(df), None)
+        records = df.to_dict(orient='records')
+        batch = self.db.batch()
+        batch_count = 0
+
+        for i, item in enumerate(records):
+            doc_id = (
+                self._safe_doc_id(item.get('ID'))
+                or self._safe_doc_id(item.get('SID'))
+                or self._safe_doc_id(item.get('Name'))
+                or f"row_{i}"
+            )
+            if not doc_id:
+                continue
+            doc_ref = self.db.collection(collection_name).document(doc_id)
+            batch.set(doc_ref, item, merge=True)
+            batch_count += 1
+            if batch_count >= 400:
+                batch.commit()
+                logger.info(f"   ...已寫入 {batch_count} 筆")
+                batch = self.db.batch()
+                batch_count = 0
+
+        if batch_count > 0:
+            batch.commit()
+        logger.info(f"✨ 供應商資料已同步至 Firestore {collection_name}，共 {len(records)} 筆")
+
     def upload_replenishment_data(self, df):
         """
         上傳補貨建議資料到 Firestore replenishment collection。
