@@ -11,6 +11,93 @@
 
 ---
 
+## 2025-03-17 新增「預測結果上傳 Firestore」腳本（`upload_final_inventory_plan_to_firebase.py`）
+
+### 今天做了什麼
+
+新增獨立腳本，將補貨預測產出的 `final_inventory_plan.csv` 上傳至 Firestore **replenishment** collection；只寫入 **ProductCode** 與 **Target_Stock** 兩欄，且 Target_Stock 以整數上傳（無小數）。
+
+### 改了什麼
+
+1. **新增 `upload_final_inventory_plan_to_firebase.py`**  
+   - 讀取 `data/insights/final_inventory_plan.csv`（可透過 `--csv` 指定）。  
+   - 來源欄位：優先使用 **Base_Demand**，若無則用既有 **Target_Stock**；轉成整數（四捨五入）後以 **Target_Stock** 上傳。  
+   - 商品識別：支援 CSV 內 **ProductCode** 或 **GoodsID**，對應至 Firestore document ID（replenishment 以 ProductCode 為 doc ID）。  
+   - 呼叫既有 `FirebaseManager.upload_replenishment_data(df)`，故沿用同一份 `data/sync_cache.json` 做增量判斷（只更新有變動的 document）。
+
+2. **上傳欄位與行為**  
+   - 僅上傳 **ProductCode**、**Target_Stock**；`upload_replenishment_data` 使用 `merge=True`，不會覆蓋 replenishment 內其他欄位（如 guessed_min、guessed_multiple、成本等）。  
+   - 與 `replenishment_forecasting_GPU NeuralProphet.py` 的產出流程分離：預測腳本只負責產 CSV，此腳本負責把「目標庫存」同步到 Firebase，方便前端或排程依需求擇時執行。
+
+### 為什麼這樣改
+
+- 預測結果（目標庫存）需要進 Firestore 給補貨介面使用，但不想和 POS 同步綁在一起；獨立腳本可在跑完預測後手動或排程執行。  
+- 只傳 ProductCode + Target_Stock 可減少寫入量與衝突，其餘補貨欄位仍由 POS_Sync_Tool / 其他流程維護。
+
+### 使用方式
+
+```bash
+# 預設讀取 data/insights/final_inventory_plan.csv、serviceAccountKey.json、data/sync_cache.json
+python upload_final_inventory_plan_to_firebase.py
+
+# 自訂路徑
+python upload_final_inventory_plan_to_firebase.py --csv "data/insights/final_inventory_plan.csv" --key "serviceAccountKey.json" --cache "data/sync_cache.json"
+```
+
+### 取捨或注意
+
+- **Target_Stock 語意**：目前上傳的是「目標庫存量」（來自預測腳本的 Base_Demand 或 CSV 的 Target_Stock），前端若需「建議下單量」可再以 Target_Stock - 當前庫存 計算。  
+- **快取**：與 POS_Sync_Tool 共用 `sync_cache.json`，若希望預測上傳與 POS 同步完全獨立，可另設 `--cache` 路徑（例如 `data/sync_cache_inventory_plan.json`）。
+
+### 下次要做的優化
+
+- 若在 `docs/使用說明.md` 或排程文件中新增「跑完預測後上傳至 Firebase」的步驟，可補上此腳本指令與參數說明。
+
+---
+
+## 2025-03-17 補貨預測腳本：記憶體、算力與 X/Y 邏輯優化（`replenishment_forecasting_GPU NeuralProphet.py`）
+
+### 今天做了什麼
+
+針對智慧補貨預測腳本做了三項核心架構調整：避免多進程序列化導致 RAM 爆炸、改為 CPU 多核穩定運算、並將 X 類穩定商品納入 AI 預測範圍；同時補上防呆（除零、缺欄位）與文件紀錄。
+
+### 改了什麼（三個主軸）
+
+1. **記憶體管理：全表傳遞 → 按 SKU 預先切碎再傳遞**  
+   在 `main()` 進入多進程迴圈前，先建立 `sales_by_sku = {GoodsID: df for ... in df_sales.groupby('GoodsID')}`；呼叫 `run_single_sku_forecast` 時只傳該 SKU 專屬的小 DataFrame，不再傳整張銷售大表。  
+   - **取捨**：主行程會常駐一份切碎後的資料，但可避免每個 worker 重複序列化大表，記憶體峰值大幅下降。
+
+2. **算力調度：放棄 GPU，改為 CPU 多核**  
+   NeuralProphet 強制 `accelerator="cpu"`；worker 數改為 `CPU_WORKERS = max(1, cpu_count() - 2)` 動態設定。  
+   - **原因**：每個 SKU 僅約十幾筆月彙總，GPU 啟動與資料搬運成本大於運算收益，且 PyTorch GPU 在多進程下易死鎖；CPU 多核對此類「短平快」千次迴圈更穩定、總體更快。
+
+3. **演算法邏輯：X 類納入 AI 預測**  
+   預測分支由「僅 Y 類走 NeuralProphet」改為 `xyz in ['X', 'Y']` 皆走模型。X 類需求最穩定、季節性訊號最乾淨，更適合時間序列模型捕捉。
+
+### 其他改動
+
+- 類別季節性係數：`Cat_Avg_Qty` 為 0 時改為 1，避免除零。
+- ABC 分析：若資料源缺 `LastInCost` 欄位，自動補 0 避免報錯。
+- 新品／空資料：改為用 `item_sales` 自身日期範圍計算「最近 4 週」，避免依賴全表 `sales_df`；無歷史時回退 `mean_qty`。
+- 回傳欄位改為 `item.get('Name','Unknown')` 等，避免缺欄位 KeyError；移除 `Used_GPU` 輸出。
+
+### 為什麼這樣改
+
+- 多進程（joblib/loky）會 pickle 參數，傳大表會造成每個任務持有一份副本，易 OOM。  
+- 短序列、高並發的任務型態下，CPU 多核比 GPU 更符合實際負載，且避免 CUDA 多進程風險。  
+- X 類原本被誤用「過去三個月平均」，改為與 Y 類一起交給模型，可提升預測品質。
+
+### 取捨或注意（建議之後確認）
+
+- **缺月是否補 0**：本版 X/Y 類不再對月序列做 `reindex(full_date_range, fill_value=0)`，只拿「有出現的月份」訓練。若業務上「缺月 = 0 銷量」，之後可考慮在該分支補回填 0，讓模型正確學到淡季；若缺月代表資料缺漏，則維持現狀較安全。
+- **CPU_WORKERS**：若發現 CPU 滿載但總耗時反而變長，可適度調低（例如 `cpu_count() - 3`），避免過多進程導致 thrash。
+
+### 下次要做的優化
+
+- 若確認缺月語意為「0 銷量」，可在 X/Y 分支加回月序列補齊邏輯並寫入 DevLog。
+
+---
+
 ## 2025-03-13 大幅提升 `sync_daily_sales_partitioned` 效能
 
 ### 今天做了什麼
