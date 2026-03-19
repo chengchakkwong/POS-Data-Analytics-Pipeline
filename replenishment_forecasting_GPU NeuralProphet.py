@@ -82,15 +82,6 @@ def perform_abc_xyz_analysis(stock_df, sales_df):
     merged['Months_Active'] = merged['Months_Active'].fillna(12).clip(lower=1) 
     
     merged['Monthly_Avg_Profit'] = merged['TotalProfit'] / merged['Months_Active']
-    merged = merged.sort_values('Monthly_Avg_Profit', ascending=False)
-    
-    total_prof = merged['Monthly_Avg_Profit'].sum()
-    if total_prof > 0:
-        merged['ProfitRatio'] = merged['Monthly_Avg_Profit'].cumsum() / total_prof
-    else:
-        merged['ProfitRatio'] = 1.0
-        
-    merged['ABC_Class'] = np.select([(merged['ProfitRatio'] <= 0.7), (merged['ProfitRatio'] <= 0.9)], ['A', 'B'], default='C')
 
     # XYZ 分析
     monthly_matrix = sales_df.groupby(['GoodsID', pd.Grouper(key='rDate', freq='MS')])['TotalQty'].sum().unstack(fill_value=0)
@@ -109,7 +100,27 @@ def perform_abc_xyz_analysis(stock_df, sales_df):
         'Month_Age': 99, 'XYZ_Class': 'Z', 'CV': 9.99, 'Mean_Monthly': 0
     })
     
+    # 先把新品抽離，再只對成熟商品做 ABC 70/20/10 切分
+    analysis_df['ProfitRatio'] = 1.0
+    analysis_df['ABC_Class'] = 'C'
     is_new = (analysis_df['Month_Age'] < 4)
+    mature_mask = ~is_new
+
+    mature_df = analysis_df.loc[mature_mask].copy().sort_values('Monthly_Avg_Profit', ascending=False)
+    total_prof_mature = mature_df['Monthly_Avg_Profit'].sum()
+    if total_prof_mature > 0 and not mature_df.empty:
+        mature_df['ProfitRatio'] = mature_df['Monthly_Avg_Profit'].cumsum() / total_prof_mature
+    else:
+        mature_df['ProfitRatio'] = 1.0
+
+    mature_df['ABC_Class'] = np.select(
+        [(mature_df['ProfitRatio'] <= 0.7), (mature_df['ProfitRatio'] <= 0.9)],
+        ['A', 'B'],
+        default='C'
+    )
+    analysis_df.loc[mature_df.index, 'ProfitRatio'] = mature_df['ProfitRatio']
+    analysis_df.loc[mature_df.index, 'ABC_Class'] = mature_df['ABC_Class']
+
     analysis_df.loc[is_new, 'ABC_Class'] = 'New'
     analysis_df.loc[is_new, 'XYZ_Class'] = 'New'
     
@@ -273,7 +284,7 @@ def tqdm_joblib(tqdm_object):
 # --- 3. 主程序執行邏輯 ---
 
 def main():
-    input_stock = "data/processed/DetailGoodsStockToday.csv"
+    input_stock = "data/processed/products_details_for_replenishment.csv"
     input_sales = "data/processed/vw_GoodsDailySales_partitioned"
     output_path = "data/insights/final_inventory_plan.csv"
     
