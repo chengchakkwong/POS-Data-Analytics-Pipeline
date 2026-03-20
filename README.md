@@ -105,8 +105,8 @@ DB_TRUST_CERT=yes
 
 - `pos_system_v2.py`: 主入口，負責資料同步流程（Orchestrates sync pipeline）。
 - `pos_service.py`: SQL Server 連線與增量同步（SQL Server integration and incremental sync）。
-- `business_insights.py`: ABC/XYZ 分類、成本校正、庫存健康與策略標籤（Core analytics）。
-- `replenishment_forecasting.py`: 銷售預測與建議進貨量（補貨計畫產出）。
+- `abc_xyz_analysis.py`: ABC/XYZ 分類與策略標籤（Core analytics）。
+- `inventory_forecast.py`: 目標庫存規劃（補貨計畫產出）。
 - `db_utils.py`: 資料庫連線與環境變數（DB connection and environment handling）。
 - `environment.yml`: 開發環境設定（Reproducible dev environment）。
 
@@ -156,9 +156,9 @@ pos_system_v2.py: 系統主入口，統籌數據同步流程。
 
 pos_service.py: 負責與 SQL Server 對接及數據增量同步邏輯。
 
-business_insights.py: 核心商業邏輯模組，包含 ABC/XYZ 分級、成本修正與策略標籤。
+abc_xyz_analysis.py: 核心商業邏輯模組，包含 ABC/XYZ 分級與策略標籤。
 
-replenishment_forecasting.py: 銷售預測與建議進貨量（產出補貨計畫 CSV）。
+inventory_forecast.py: 目標庫存規劃（產出補貨計畫 CSV）。
 
 db_utils.py: 資料庫連線與環境變數管理封裝。
 

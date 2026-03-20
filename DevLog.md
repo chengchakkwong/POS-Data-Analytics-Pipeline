@@ -365,3 +365,57 @@ python upload_final_inventory_plan_to_firebase.py --csv "data/insights/final_inv
 - 若實際使用中發現 Firestore 寫入量過大，可以再評估：
   - 是否要把某些變動頻繁但不關鍵的欄位排除在 Hash 之外（類似 `AvgCost` 的處理）。
   - 是否增加工具指令（例如小腳本）來安全地重建或清除 `data/sync_cache.json`，避免手動刪檔出錯。
+
+---
+## 2026-03-21 新品（New）判定改為整段歷史首次上架日
+### 今天做了什麼
+- 調整 `abc_xyz_analysis.py` 的 `New` 判定依據：由「最近 12 個月子集合計算 Month_Age」改為「整段歷史計算商品首次上架日，並判定距今是否 < 4 個月」。
+
+### 改了什麼
+1. **`abc_xyz_analysis.py`**
+   - `analyze_profit_abc(...)` 新增 `month_age_map` 參數，用於覆寫 `Month_Age`。
+   - 在 `__main__` 內先用**完整銷售歷史**計算每個 `GoodsID` 的 `FirstSaleDate`，再由 `FirstSaleDate` 與 `last_date` 算出 `Month_Age`，產生 `month_age_map`。
+   - ABC 70/20/10 的價值計算仍維持使用 `df_sales_recent12`（最近 12 個月）彙總，避免同時改動 A/B/C 的「價值」定義；本次變更只影響 `New` 分類來源。
+
+### 為什麼這樣改
+- 避免舊邏輯中「New 使用最近 12 個月的子集合 FirstSaleDate」導致舊商品被誤判為新品（Month_Age 被低估）。
+- 確保 `New` 定義符合目前需求：「商品整個歷史首次上架」距今是否 < 4 個月。
+
+### 取捨或注意
+- `New` 判定所使用的 `Month_Age` 會受到完整歷史的 `FirstSaleDate` 影響；但 ABC（A/B/C）的計算仍依最近 12 個月價值彙總，不會因本次改動而連帶改變 A/B/C 的切分依據。
+- 沒有銷售紀錄或首次上架資訊缺失的商品，`Month_Age` 仍會走 `fillna(99)`，會被視為非新品（符合「沒有歷史資訊就不推定 New」的保守行為）。
+
+### 下次要做的優化
+- 用同一份輸入資料對照「舊版 vs 新版」`ABC_Class == 'New'` 的 SKU 數量與Top商品，確認新品數量是否符合預期。
+- 若發現新品數量飄移過大，再檢查 `vw_GoodsDailySales_partitioned` 是否確實包含完整歷史（否則 `FirstSaleDate` 的定義會被拉短）。
+
+---
+## 2026-03-21 補貨預測模組拆分與 C 類策略更新
+### 今天做了什麼
+- 將補貨預測流程拆分為兩個獨立腳本：
+  - `abc_xyz_analysis.py`：產出 `data/insights/abc_xyz_analysis.csv`（ABC/XYZ + Strategy 等標籤）
+  - `inventory_forecast.py`：讀取標籤與庫存/銷售資料，產出 `data/insights/target_stock_plan.csv`（目標庫存 Target_Stock）
+- 調整輸出介面：移除 `Suggested_Order / Final_Order`，下游改以 `Target_Stock` 為核心欄位。
+- 更新 C 類（CX/CY/CZ 皆適用）長尾規則，避免「平均銷量為 0 仍被推進貨」或「首批大單造成庫存過量」：
+  - `Mean_Monthly_Qty <= 0` 時 `Target_Stock = 0`
+  - 若有 `FirstOrderQty > 0` 且 `FirstOrderQty > Mean_Monthly_Qty * 12`，則 `Target_Stock = Mean_Monthly_Qty * 1.2`
+  - 若 `FirstOrderQty` 不存在/不為正：`Target_Stock = Mean_Monthly_Qty * 1.2`
+
+### 改了什麼
+1. `inventory_forecast.py`
+   - C 類分支採用上述規則計算 `Target_Stock`
+   - `Mean_Monthly_Qty` NaN 時視為 0
+2. `abc_xyz_analysis.py`
+   -（沿用先前調整）`New` 判定使用「整段歷史首次上架日」計算 `Month_Age`，避免舊商品誤判
+
+### 為什麼這樣改
+- 模組拆分後，分類與預測的責任界線更清楚，且在多進程/資料傳遞上更容易控管記憶體峰值與介面一致性。
+- C 類長尾若仍沿用較寬鬆的首批大單策略，容易造成半年賣不完的過量庫存；因此把「過大首批」壓回到保守的 `mean_qty * 1.2`，並且在 `mean_qty==0` 時直接輸出 0（不進貨）。
+
+### 取捨或注意
+- `C` 類規則變得更保守，可能導致某些「確實有特殊原因」的商品進貨不足；若後續需要例外保留，可再引入可判斷的欄位/標記到分類輸出（目前你先不使用特殊原因）。
+- `New` 判定的調整會影響 `ABC_Class='New'` 的 SKU 數量（但 A/B/C 的 ABC 切分仍維持原先的價值彙總邏輯）。
+
+### 下次要做的優化
+- 更新 `docs/使用說明.md` 與 `README.md`，讓執行指令與輸出檔名對齊新流程。
+- 若要全面落地新版流程，可再補上一份「deprecated」舊腳本的執行提醒與檔案搬移紀錄。

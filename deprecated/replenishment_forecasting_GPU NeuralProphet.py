@@ -11,12 +11,10 @@ import contextlib
 import joblib
 
 # --- 終極靜音設定：封殺所有底層碎碎念 ---
-# 1. 關閉 Prophet 與神經網路的常規警告
 logging.getLogger('prophet').setLevel(logging.ERROR)
 logging.getLogger('neuralprophet').setLevel(logging.ERROR)
 logging.getLogger('pytorch_lightning').setLevel(logging.ERROR)
 
-# 2. 徹底封殺底層 C++ 引擎 (cmdstanpy) 的狂洗版 INFO
 cmdstanpy_logger = logging.getLogger('cmdstanpy')
 cmdstanpy_logger.setLevel(logging.ERROR)
 cmdstanpy_logger.disabled = True
@@ -25,11 +23,9 @@ cmdstanpy_logger.disabled = True
 # --- 系統配置與效能設定 ---
 TEST_MODE = False      # 設為 False 處理全量商品
 SAMPLE_SIZE = 50       # (測試模式才有效)
-# 💡 動態取得 CPU 核心數，留下 1~2 顆給系統背景運作，確保電腦不卡死
 CPU_WORKERS = max(1, multiprocessing.cpu_count() - 2) 
 # ------------------------
 
-# 嘗試導入模型 (統一強制使用 CPU 以確保多進程穩定性)
 try:
     from neuralprophet import NeuralProphet
     import torch
@@ -38,20 +34,17 @@ except ImportError:
     from prophet import Prophet
     HAS_NEURAL_PROPHET = False
 
-# 忽略日誌干擾
 warnings.filterwarnings('ignore')
 
 # --- 1. 數據分類與預處理 ---
 
 def calculate_category_seasonal_indices(sales_df, stock_df):
-    """計算類別層級的季節性係數 (用於輔助數據稀疏的 C/Z 類商品)"""
     sales_df = sales_df.copy()
     sales_df['rDate'] = pd.to_datetime(sales_df['rDate'])
     df_with_cat = sales_df.merge(stock_df[['GoodsID', 'Category']], on='GoodsID', how='left')
     cat_monthly = df_with_cat.groupby(['Category', pd.Grouper(key='rDate', freq='MS')])['TotalQty'].sum().reset_index()
     cat_avg = cat_monthly.groupby('Category')['TotalQty'].mean().rename('Cat_Avg_Qty').reset_index()
     cat_indices = cat_monthly.merge(cat_avg, on='Category')
-    # 避免除以 0
     cat_indices['Cat_Avg_Qty'] = cat_indices['Cat_Avg_Qty'].replace(0, 1) 
     cat_indices['Seasonal_Index'] = cat_indices['TotalQty'] / cat_indices['Cat_Avg_Qty']
     cat_indices['Month'] = cat_indices['rDate'].dt.month
@@ -59,7 +52,6 @@ def calculate_category_seasonal_indices(sales_df, stock_df):
     return index_map
 
 def perform_abc_xyz_analysis(stock_df, sales_df):
-    """執行 ABC-XYZ 矩陣分析 (價值與波動)"""
     sales_df['rDate'] = pd.to_datetime(sales_df['rDate'])
     last_date = sales_df['rDate'].max()
     start_12m = last_date - pd.DateOffset(months=12)
@@ -72,22 +64,17 @@ def perform_abc_xyz_analysis(stock_df, sales_df):
         merged['LastInCost'] = 0
     merged['TotalProfit'] = merged['TotalAmt'] - (merged['LastInCost'] * merged['TotalQty'])
     
-    # 🌟 [核心升級 1] 時間公平邏輯 (月均毛利) 🌟
     first_sale_12m = df_12m.groupby('GoodsID')['rDate'].min().reset_index()
     first_sale_12m.columns = ['GoodsID', 'First_Sale_Date']
     merged = pd.merge(merged, first_sale_12m, on='GoodsID', how='left')
     
-    # 🛡️ [防爆機制] 算出存活月數，若無紀錄視為12個月，若少於1個月強制進位成1個月
     merged['Months_Active'] = ((last_date - merged['First_Sale_Date']).dt.days / 30)
     merged['Months_Active'] = merged['Months_Active'].fillna(12).clip(lower=1) 
-    
     merged['Monthly_Avg_Profit'] = merged['TotalProfit'] / merged['Months_Active']
 
-    # XYZ 分析
     monthly_matrix = sales_df.groupby(['GoodsID', pd.Grouper(key='rDate', freq='MS')])['TotalQty'].sum().unstack(fill_value=0)
     stats = pd.DataFrame(index=monthly_matrix.index)
     stats['Mean_Monthly'] = monthly_matrix.mean(axis=1)
-    # 修正：確保長度匹配
     cv_values = np.where(stats['Mean_Monthly'] > 0, monthly_matrix.std(axis=1) / stats['Mean_Monthly'], 9.99)
     stats['CV'] = cv_values
     stats['XYZ_Class'] = np.select([(stats['CV'] <= 0.5), (stats['CV'] <= 1.0)], ['X', 'Y'], default='Z')
@@ -100,7 +87,7 @@ def perform_abc_xyz_analysis(stock_df, sales_df):
         'Month_Age': 99, 'XYZ_Class': 'Z', 'CV': 9.99, 'Mean_Monthly': 0
     })
     
-    # 先把新品抽離，再只對成熟商品做 ABC 70/20/10 切分
+    # [保留你的完美邏輯] 先把新品抽離，再只對成熟商品做 ABC 70/20/10 切分
     analysis_df['ProfitRatio'] = 1.0
     analysis_df['ABC_Class'] = 'C'
     is_new = (analysis_df['Month_Age'] < 4)
@@ -129,22 +116,17 @@ def perform_abc_xyz_analysis(stock_df, sales_df):
 # --- 2. 預測核心 (純 CPU 穩定極速版) ---
 
 def run_single_sku_forecast(item, item_sales, next_month, cat_index_map):
-    """單一 SKU 預測單元 (接收專屬的小 DataFrame)"""
-    
-    # 👇 [新增 1] 導入底層系統控制套件
     import warnings
     import logging
     import sys
     import os
     from contextlib import contextmanager
 
-    # 封殺標準警告
     warnings.filterwarnings('ignore')
     logging.getLogger('NP').setLevel(logging.ERROR)
     logging.getLogger('NP.df_utils').setLevel(logging.ERROR)
     logging.getLogger('py.warnings').setLevel(logging.ERROR)
 
-    # 👇 [新增 2] 建立「黑洞靜音魔法」，強制吞噬所有不受控的 tqdm 進度條
     @contextmanager
     def suppress_output():
         with open(os.devnull, 'w') as devnull:
@@ -154,7 +136,6 @@ def run_single_sku_forecast(item, item_sales, next_month, cat_index_map):
                 yield
             finally:
                 sys.stdout, sys.stderr = old_stdout, old_stderr
-    # -----------------------------------------------------------
 
     gid = item['GoodsID']
     p_code = item.get('ProductCode', 'Unknown') 
@@ -194,13 +175,11 @@ def run_single_sku_forecast(item, item_sales, next_month, cat_index_map):
             m_df.columns = ['ds', 'y']
             
             if len(m_df) >= 12:
-                # 👇 [新增 3] 把 AI 訓練過程關進黑洞裡！
                 with suppress_output():
                     if HAS_NEURAL_PROPHET:
                         m = NeuralProphet(
                             yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False,
-                            learning_rate=0.1, # 💡 [新增 4] 直接指定學習率，跳過尋找 LR 的過程，運算速度爆增！
-                            accelerator="cpu", epochs=30, batch_size=None,
+                            learning_rate=0.1, accelerator="cpu", epochs=30, batch_size=None,
                             trainer_config={"logger": False, "enable_checkpointing": False, "enable_progress_bar": False}
                         )
                         m.fit(m_df, freq="MS", progress=None)
@@ -214,10 +193,24 @@ def run_single_sku_forecast(item, item_sales, next_month, cat_index_map):
             else:
                 base_pred = m_df['y'].tail(3).mean() if not m_df.empty else mean_qty
                 
-        # [策略 3] Z 類：長尾死水商品
+        # 🌟 [策略 3 新增] Z 類：長尾死水商品 (最高防禦 + 剔除極端值 B2B 大單) 🌟
         else:
             if not item_sales.empty:
-                base_pred = item_sales.groupby(pd.Grouper(key='rDate', freq='MS'))['TotalQty'].sum().tail(6).median()
+                m_sales = item_sales.groupby(pd.Grouper(key='rDate', freq='MS'))['TotalQty'].sum()
+                historical_max = m_sales.max()
+                last_6m = m_sales.tail(6)
+                
+                if len(last_6m) >= 2:
+                    last_6m_max = last_6m.max()
+                    # 發現異常客製化大單，降階取第二大值
+                    if last_6m_max == historical_max and last_6m_max > 0:
+                        base_pred = last_6m.nlargest(2).iloc[1] 
+                    else:
+                        base_pred = last_6m_max
+                elif len(last_6m) == 1:
+                    base_pred = last_6m.iloc[0]
+                else:
+                    base_pred = mean_qty
             else:
                 base_pred = mean_qty
                 
@@ -268,7 +261,6 @@ def run_single_sku_forecast(item, item_sales, next_month, cat_index_map):
 
 @contextlib.contextmanager
 def tqdm_joblib(tqdm_object):
-    """為 joblib 加上單行動態 tqdm 進度條的黑魔法"""
     class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
         def __call__(self, *args, **kwargs):
             tqdm_object.update(n=self.batch_size)
@@ -322,11 +314,10 @@ def main():
     print("📦 正在解決記憶體問題：預先打包各 SKU 的專屬歷史資料...")
     sales_by_sku = {gid: df for gid, df in df_sales.groupby('GoodsID')}
 
-    print(f"🔮 開始高效並行預測 {len(target_skus)} 個商品...")
+    print(f"🔮 開始高效並行預測 {len(target_skus)} 個重點商品...")
     start_time = time.time()
     
     try:
-        # 💡 使用 with tqdm_joblib 來包裝你的平行運算
         with tqdm_joblib(tqdm(desc="🔮 AI 預測進度", total=len(target_skus))):
             results = Parallel(n_jobs=CPU_WORKERS, backend="loky")(
                 delayed(run_single_sku_forecast)(
@@ -339,8 +330,48 @@ def main():
             )
         
         forecast_df = pd.DataFrame(results)
+
+        # 🌟 [策略 4 新增] C 類長尾商品極簡補貨 (引入 FirstOrderQty) 🌟
+        c_class_skus = analysis_df[analysis_df['ABC_Class'] == 'C']
         
-        # 匯出 CSV，按 Final_Order (最終下單量) 降冪排列
+        if not c_class_skus.empty and not TEST_MODE:
+            print(f"🧹 正在快速處理 {len(c_class_skus)} 個 C 類長尾商品...")
+            c_results = []
+            
+            for _, row in c_class_skus.iterrows():
+                mean_qty = row['Mean_Monthly']
+                curr_stock = row.get('CurrStock', 0)
+                moq = row.get('MinOrderQty', 0)
+                
+                # 優先使用 FirstOrderQty，若無則用月均銷量 1.5 倍
+                first_order_qty = row.get('FirstOrderQty', 0)
+                if pd.notna(first_order_qty) and first_order_qty > 0:
+                    target_stock = first_order_qty
+                else:
+                    target_stock = mean_qty * 1.5
+                    
+                suggested_order = max(0, target_stock - curr_stock)
+                final_order = max(suggested_order, moq) if suggested_order > 0 else 0
+                
+                c_results.append({
+                    'ProductCode': row.get('ProductCode', 'Unknown'), 
+                    'Name': row.get('GoodsName1', row.get('Name', 'Unknown')), 
+                    'ABC_XYZ': f"C{row['XYZ_Class']}",
+                    'MinOrderQty': moq,
+                    'CurrStock': curr_stock,
+                    'Base_Demand': round(mean_qty, 2), # C 類以均值展示
+                    'Final_Demand': round(mean_qty, 2), 
+                    'Target_Stock': round(target_stock, 2), 
+                    'Suggested_Order': round(suggested_order, 2),
+                    'Final_Order': round(final_order, 2) 
+                })
+                
+            c_forecast_df = pd.DataFrame(c_results)
+            # 將 A/B 類的 AI 預測結果與 C 類結果合併
+            forecast_df = pd.concat([forecast_df, c_forecast_df], ignore_index=True)
+
+        
+        # 匯出 CSV
         forecast_df.sort_values(by='Final_Order', ascending=False).to_csv(output_path, index=False, encoding='utf-8-sig')
         
         end_time = time.time()
@@ -348,7 +379,7 @@ def main():
         print(f"📂 報告已匯出至: {output_path}")
             
     except Exception as e:
-        print(f"\n❌ 執行平行運算時發生中斷: {e}")
+        print(f"\n❌ 執行時發生中斷: {e}")
 
 if __name__ == "__main__":
     main()
