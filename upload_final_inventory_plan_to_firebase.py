@@ -13,13 +13,13 @@ logger = logging.getLogger(__name__)
 
 def _pick_target_stock_source_column(df: pd.DataFrame) -> str:
     """
-    Source for Target_Stock: Base_Demand or existing Target_Stock (no decimals).
+    Source for Target_Stock: prefer Target_Stock, fallback to Base_Demand.
     Upload only ProductCode and Target_Stock.
     """
-    if "Base_Demand" in df.columns:
-        return "Base_Demand"
     if "Target_Stock" in df.columns:
         return "Target_Stock"
+    if "Base_Demand" in df.columns:
+        return "Base_Demand"
     raise KeyError("CSV must contain either 'Base_Demand' or 'Target_Stock' column.")
 
 
@@ -84,7 +84,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--csv",
-        default=os.path.join("data", "insights", "final_inventory_plan.csv"),
+        default=os.path.join("data", "insights", "target_stock_plan.csv"),
         help="Path to final_inventory_plan.csv",
     )
     parser.add_argument(
