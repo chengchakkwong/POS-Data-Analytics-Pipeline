@@ -47,6 +47,30 @@ def select_upload_columns(df_stock):
     return df_stock[valid_cols]
 
 
+def sync_inbound_movements(service, fb_mgr):
+    """
+    從 SQL 增量讀取入貨紀錄（MoveTypeID=1），上傳至 Firebase inbound_movements collection。
+    watermark（last_sid）由 FirebaseManager 從 sync_cache.json 管理，
+    每次只讀取 SID > last_sid 的新列，讀完後更新書籤。
+    """
+    last_sid = fb_mgr.get_inbound_last_sid()
+    logger.info(f"📦 入貨紀錄同步：讀取 SID > {last_sid} 的新資料...")
+    try:
+        df_inbound = service.get_new_inbound_movements(last_sid=last_sid)
+    except Exception as e:
+        logger.error(f"❌ 讀取入貨紀錄失敗: {e}", exc_info=True)
+        return
+
+    if df_inbound is None or df_inbound.empty:
+        logger.info("ℹ️ 無新入貨紀錄，跳過上傳。")
+        return
+
+    try:
+        fb_mgr.upload_inbound_movements(df_inbound)
+    except Exception as e:
+        logger.error(f"❌ 入貨紀錄上傳 Firebase 失敗: {e}", exc_info=True)
+
+
 def upload_to_firebase(fb_mgr, df_stock):
     """
     上傳 products 與 replenishment 到 Firebase。
@@ -102,7 +126,10 @@ def main():
         # 4. [Load] 上傳到 Firebase：同時寫入 products 與 replenishment
         upload_to_firebase(fb_mgr, df_stock)
 
-        # 5. 統計成果
+        # 5. [Load] 增量同步入貨紀錄到 Firebase inbound_movements
+        sync_inbound_movements(service, fb_mgr)
+
+        # 6. 統計成果
         logger.info("")
         logger.info(SEPARATOR)
         total_time = time.perf_counter() - start_all

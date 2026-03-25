@@ -419,3 +419,47 @@ python upload_final_inventory_plan_to_firebase.py --csv "data/insights/final_inv
 ### 下次要做的優化
 - 更新 `docs/使用說明.md` 與 `README.md`，讓執行指令與輸出檔名對齊新流程。
 - 若要全面落地新版流程，可再補上一份「deprecated」舊腳本的執行提醒與檔案搬移紀錄。
+---
+## 2026-03-25 入貨紀錄增量同步與 Admin 核對
+### 今天做了什麼
+- 實作「入貨紀錄增量同步到 Firebase `inbound_movements` collection」功能，讓 App/Admin 能核對系統單據數量與實際到貨數量。
+- 在 `POS_Sync_Tool.py` 的同步流程中加入 `sync_inbound_movements()` 步驟（現有 products/replenishment 之後執行）。
+
+### 改了什麼
+1. **`pos_service.py`**
+   - 新增 `get_new_inbound_movements(last_sid=0, days=14)`：以 `SID` watermark + `BillDate >= 最近 14 天` 雙條件做增量查詢。
+   - 即使 `last_sid=0`（首次執行）也只拿最近兩週資料，不會搬動所有歷史。
+   - 撈取欄位：SID、BillDate、GoodsNo、Barcode、GoodsName1、OriQty、ChQty、NewQty、SupplierName1、invNo、Note。
+
+2. **`firebase_service.py`**
+   - 新增 `_generate_inbound_hash(item)`：以 SID + 核心欄位生成指紋。
+   - 新增 `upload_inbound_movements(df)`：沿用既有 hash 快取 + batch commit 模式，cache key 為 `inbound:{SID}`，document ID 為 `str(SID)`。同步完成後自動更新 watermark key `inbound_last_sid` 到 `sync_cache.json`。
+   - 新增 `get_inbound_last_sid()`：從 `sync_cache.json` 讀取 watermark。
+
+3. **`POS_Sync_Tool.py`**
+   - 新增 `sync_inbound_movements(service, fb_mgr)` 函式：讀 watermark → 增量撈 SQL → 上傳 Firebase → 自動更新書籤。
+   - 在 `main()` 的步驟 4（products/replenishment）之後插入步驟 5（inbound_movements 增量同步）。
+
+4. **文件更新**
+   - `docs/Firestore_雙Collection設計與安全說明.md`：擴充 collection 對照表、新增「四之一、入貨紀錄與到貨核對資料流」段落、安全規則與 hash 快取章節補上 inbound_movements / arrivalHistory 約定。
+   - `docs/使用說明.md`：POS_Sync_Tool 執行步驟加上第 4 點（同步 inbound_movements）、新增「二之三、入貨紀錄增量同步與 Admin 核對」段落。
+   - `docs/專案心路歷程與架構決策.md`：Fan-out 寫入段落補充 inbound_movements 擴充方向。
+
+### 設計決定
+- `productCode` 與 `GoodsNo` 為同一個值，直接用作 key 配對。
+- `arrivalHistory`（App 現有 collection）建議新增 `supplierName`（由 App 掃碼時從 `products` 查得），以利 Admin 單次查詢即可比對。
+- Admin 紅綠燈比對：以 `GoodsNo/productCode` 為 key，`ChQty` vs `SUM(arrivalQty)` 判定吻合/差異，日期容忍 ±7 天。
+- `OriQty` 為 0 或很低 → 可作為「直接上架補貨」的候選提示；負數 → 觸發「檢查庫存」風險提示。
+- `days=14` 預設值：因 Admin 容忍 ±7 天，14 天窗口足夠覆蓋。
+
+### 取捨或注意
+- watermark（`inbound_last_sid`）與 hash 快取共用 `sync_cache.json`，不多一個檔案。
+- `MoveTypeID=1` 假設為「入貨」，建議確認 DB 定義表（如 `GoodsStockMoveType`）以確保正確。
+- 本次只實作 Python → Firebase 的同步端；App 端（`arrivalHistory` 加 `supplierName`）與 Admin 核對 UI 需另外處理。
+
+### 下次要做的優化
+- App 端：收貨掃碼時從 `products` 查 `Supplier` 寫入 `arrivalHistory.supplierName`。
+- Admin 核對畫面：日期 list → 供應商 list → 貨品明細紅綠燈。
+- 評估是否需要 `inbound_summary` 摘要 document 以降低 Admin 端查詢成本。
+- 確認 `MoveTypeID=1` 對應的業務含義（查 DB 定義表）。
+- 若未來資料量很大，考慮對 `inbound_movements` 做定期清理或歸檔（例如只保留最近 3 個月）。

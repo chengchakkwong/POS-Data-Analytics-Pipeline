@@ -1,6 +1,6 @@
 # Firestore 雙 Collection 設計與安全說明
 
-本文件說明 **POS_Sync_Tool** 為何將資料寫入兩個 Firestore collection（`products` 與 `replenishment`），以及如何依此設計設定安全規則，兼顧前端效能與敏感資料保護。
+本文件說明 **POS_Sync_Tool** 為何將資料寫入 Firestore collections（包含 `products` 與 `replenishment`），以及如何依此設計設定安全規則；並補充入貨/到貨核對相關資料流所需的 `inbound_movements`、`arrivalHistory`（或 `receiving_logs`）等約定。
 
 ---
 
@@ -45,6 +45,9 @@
 |------------------|------------------|
 | **products**     | ProductCode, Barcode, Name, CurrStock, RetailPrice, Category, Supplier，以及其他庫存主檔欄位 |
 | **replenishment**| 同 products 全部欄位 + LastInCost, AvgCost, InboundLocation, FirstOrderQty, NoteDescription, guessed_min, guessed_multiple |
+| **inbound_movements** | 由 SQL 入貨紀錄同步而來（MoveTypeID=1）：SID、BillDate、GoodsNo、OriQty、ChQty、NewQty、SupplierName1、Barcode、GoodsName1、invNo、Note、syncedAt |
+| **arrivalHistory / receiving_logs** | App 掃碼輸入的到貨紀錄：arrivalQty、barcode、productCode、productNameSnapshot、createdAt、createdBy、source、note、updatedAt；並建議新增 `supplierName` 以利 Admin 核對 |
+| **inbound_summary（建議）** | Admin 畫面用摘要索引（日期 list、供應商 list、紅綠燈狀態），降低 Admin 端查詢成本 |
 
 - **products**：來自 `pos_service.get_stock_master_data()`，經欄位篩選後上傳。
 - **replenishment**：同一份庫存主檔經 `replenishment_service.prepare()` 加工（解析 Note、補貨欄位）後上傳，並在後續流程由 `upload_guessed_min_multiple()` 寫入 `guessed_min` / `guessed_multiple`。
@@ -59,6 +62,29 @@
 
 ---
 
+## 四之一、入貨紀錄（inbound_movements）與到貨核對（arrivalHistory）資料流
+本專案擴充「App 核對單據與實際到貨數量」的流程，對應 Firebase 資料流約定如下：
+
+1. **POS_Sync_Tool（Python）→ `inbound_movements`**
+   - 資料來源：SQL Server `GoodsStockMovement`（`MoveTypeID=1`）。
+   - 設計決定：
+     - `SID` 遞增主鍵做 watermark，進行增量同步。
+     - Firestore document ID 使用 `SID`（一筆 SQL 入貨紀錄一份 document）。
+     - Admin 比對核心欄位：`BillDate`、`SupplierName1`、`GoodsNo`（= App 的 `productCode`）、`OriQty`、`ChQty`、`NewQty`。
+
+2. **App 掃碼/輸入 → `arrivalHistory`（或 `receiving_logs`）**
+   - App 保存：`arrivalQty`、`barcode`、`productCode`、`productNameSnapshot`、`createdAt`、`createdBy`、`source`、`note`、`updatedAt`。
+   - 為使 Admin 能直接依供應商比對與呈現紅綠燈，建議 App 在寫入時從 `products` collection 查到並寫入 `supplierName`。
+
+3. **Admin 紅綠燈比對邏輯（建議）**
+   - 系統：`inbound_movements.ChQty`
+   - 實際：同一 `GoodsNo/productCode` 的 `SUM(arrivalHistory.arrivalQty)`
+   - 日期容忍：以到貨掃碼時間 `createdAt` 對應 `BillDate ± 7 天` 視為同一批到貨。
+
+4. **摘要集合（建議）：`inbound_summary`**
+   - Firestore 缺少 DISTINCT/彙總能力，若要支援 Admin「日期 list → 供應商 list → 紅綠燈」的快速 UI，可由同步端維護摘要文件以降低查詢與讀取成本。
+
+---
 ## 四、安全規則設定建議（Firebase Console）
 
 可依實際登入方式（例如 Firebase Auth、自訂 token、Admin only）調整，以下為概念範例。
@@ -82,6 +108,13 @@ match /replenishment/{productId} {
   // 或 allow read, write: if false;  若完全由後端透過 Admin SDK 存取
 }
 ```
+
+### inbound_movements（建議僅管理端可讀）
+- 建議只允許管理端/特定角色讀取；寫入由後端（Admin SDK）完成。
+
+### arrivalHistory / receiving_logs（App 寫入、管理端讀取）
+- App 端需要寫入到自己的到貨紀錄；Admin 端需要讀取以進行比對。
+- 權限請依你的 Auth/role 模型設定，避免一般使用者任意竄改他人紀錄。
 
 實際撰寫規則時請參照 [Firestore Security Rules 文件](https://firebase.google.com/docs/firestore/security/get-started)，並依專案登入與權限設計調整。
 
@@ -109,6 +142,10 @@ match /replenishment/{productId} {
 - **guessed_min / guessed_multiple：`upload_guessed_min_multiple()`**
   - 使用 `_generate_min_multiple_hash(item)`，僅依 `ProductCode`、`guessed_min`、`guessed_multiple` 三個欄位判斷是否需要更新，並以 `merge=True` 寫入同一份 `replenishment/{ProductCode}` document。
 
+- **inbound_movements（擴充時）**
+  - 建議沿用相同「Hash + 快取」策略以降低 Firestore 寫入量。
+  - watermark 以 `SID` 控制增量讀取；cache key 可採類似 `inbound:{SID}` 避免反覆重寫未變更 document。
+
 > 若需要在程式邏輯變更後「強制全量重寫」（例如新增欄位，想讓所有既有 document 也帶上），可以人工刪除 `data/sync_cache.json` 再執行同步工具；這次會視為首次上傳，全部 document 重新寫入，之後仍回到上述的增量同步邏輯。
 
 ---
@@ -120,6 +157,7 @@ match /replenishment/{productId} {
 | 同步入口       | `POS_Sync_Tool.py` |
 | 上傳 products  | `firebase_service.FirebaseManager.upload_stock_data()` |
 | 上傳 replenishment | `firebase_service.FirebaseManager.upload_replenishment_data()` |
+| （擴充）同步入貨紀錄 | `inbound_movements`（由同步端新增/擴充） |
 | 補貨資料加工   | `replenishment_service.prepare()` |
 
 操作步驟與指令請見 **[使用說明.md](使用說明.md)** 當中的「二之一、Firebase 同步（POS_Sync_Tool）」一節。

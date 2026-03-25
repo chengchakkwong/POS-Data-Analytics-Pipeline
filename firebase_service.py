@@ -98,6 +98,21 @@ class FirebaseManager:
         )
         return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
 
+    def _generate_inbound_hash(self, item):
+        """
+        為入貨紀錄生成指紋，用於增量上傳快取。
+        使用 SID + 核心欄位，避免反覆重寫相同入貨 document。
+        """
+        unique_str = (
+            f"{item.get('SID', '')}"
+            f"{item.get('BillDate', '')}"
+            f"{item.get('GoodsNo', '')}"
+            f"{item.get('ChQty', '')}"
+            f"{item.get('OriQty', '')}"
+            f"{item.get('NewQty', '')}"
+        )
+        return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
+
     def upload_guessed_min_multiple(self, df):
         """
         僅將 guessed_min、guessed_multiple 寫入 Firestore replenishment collection。
@@ -417,3 +432,97 @@ class FirebaseManager:
         logger.info("✨ 分類同步完成！")
         logger.info(f"   - 實際寫入: {total_updated} 筆 (消耗額度)")
         logger.info(f"   - 略過未變: {skipped_count} 筆 (節省額度)")
+
+    def upload_inbound_movements(self, df):
+        """
+        將入貨紀錄增量上傳到 Firestore inbound_movements collection。
+
+        - document ID：str(SID)（一筆 SQL 入貨紀錄對應一份 document）
+        - cache key：inbound:{SID}
+        - 採用 hash 快取，只寫入有變動或尚未存在的 document
+        - 使用 merge=False（每份 document 為完整單筆入貨紀錄，不需合併）
+        - 同時更新 sync_cache.json 中的 watermark key「inbound_last_sid」
+        """
+        if df is None or df.empty:
+            logger.info("ℹ️ 無入貨紀錄需要上傳")
+            return
+
+        collection_name = 'inbound_movements'
+        required = ['SID', 'GoodsNo', 'ChQty', 'BillDate']
+        if not all(c in df.columns for c in required):
+            logger.warning(f"⚠️ 入貨紀錄缺少欄位 {required}，跳過 inbound_movements 上傳")
+            return
+
+        from datetime import datetime, timezone
+        synced_at = datetime.now(timezone.utc).isoformat()
+
+        df = df.where(pd.notnull(df), None)
+        records = df.to_dict(orient='records')
+
+        batch = self.db.batch()
+        batch_count = 0
+        total_updated = 0
+        skipped_count = 0
+        new_cache = self.local_cache.copy()
+
+        for item in records:
+            sid = item.get('SID')
+            if sid is None:
+                continue
+            sid_str = str(int(sid))
+            cache_key = f"inbound:{sid_str}"
+            current_hash = self._generate_inbound_hash(item)
+
+            if cache_key in self.local_cache and self.local_cache[cache_key] == current_hash:
+                skipped_count += 1
+                continue
+
+            payload = {
+                'SID': int(sid),
+                'BillDate': item.get('BillDate'),
+                'GoodsNo': item.get('GoodsNo'),
+                'Barcode': item.get('Barcode'),
+                'GoodsName1': item.get('GoodsName1'),
+                'OriQty': item.get('OriQty'),
+                'ChQty': item.get('ChQty'),
+                'NewQty': item.get('NewQty'),
+                'SupplierName1': item.get('SupplierName1'),
+                'invNo': item.get('invNo'),
+                'Note': item.get('Note'),
+                'syncedAt': synced_at,
+            }
+
+            doc_ref = self.db.collection(collection_name).document(sid_str)
+            batch.set(doc_ref, payload)
+
+            new_cache[cache_key] = current_hash
+            batch_count += 1
+            total_updated += 1
+
+            if batch_count >= 400:
+                batch.commit()
+                logger.info(f"   ...已寫入 {total_updated} 筆入貨紀錄")
+                batch = self.db.batch()
+                batch_count = 0
+
+        if batch_count > 0:
+            batch.commit()
+
+        # 更新 watermark：記下這批最大的 SID
+        if total_updated > 0:
+            max_sid = max(
+                int(item['SID']) for item in records
+                if item.get('SID') is not None
+            )
+            new_cache['inbound_last_sid'] = max_sid
+
+        self.local_cache = new_cache
+        self._save_cache()
+
+        logger.info("✨ 入貨紀錄同步完成！")
+        logger.info(f"   - 實際寫入: {total_updated} 筆 (消耗額度)")
+        logger.info(f"   - 略過未變: {skipped_count} 筆 (節省額度)")
+
+    def get_inbound_last_sid(self):
+        """從本地快取讀取 inbound_movements 的 watermark (last_sid)。"""
+        return int(self.local_cache.get('inbound_last_sid', 0))

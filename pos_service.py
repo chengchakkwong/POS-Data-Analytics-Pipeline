@@ -105,6 +105,44 @@ class POSDataService:
             logger.info("ℹ️ SupplierInfo 無資料")
         return df
 
+    def get_new_inbound_movements(self, last_sid=0, days=14):
+        """
+        增量讀取入貨紀錄（MoveTypeID=1），只取 SID > last_sid
+        且 BillDate 在最近 days 天內的新列。
+        供 inbound_movements 同步到 Firebase 使用。
+        欄位：SID, BillDate, GoodsNo, Barcode, GoodsName1, OriQty, ChQty, NewQty,
+              SupplierName1, invNo, Note
+
+        days 預設 14 天（Admin 核對容忍 ±7 天，14 天窗口足夠覆蓋最新一批到貨）。
+        即使 last_sid=0 也只拿近 days 天，不會搬動所有歷史資料。
+        """
+        bill_start = int(
+            (date.today() - timedelta(days=days)).strftime("%Y%m%d")
+        )
+        sql = (
+            "SELECT SID, BillDate, GoodsNo, Barcode, GoodsName1, "
+            "OriQty, ChQty, NewQty, SupplierName1, invNo, Note "
+            "FROM dbo.GoodsStockMovement "
+            "WHERE MoveTypeID = 1 AND SID > :last_sid "
+            "AND BillDate >= :bill_start "
+            "ORDER BY SID"
+        )
+        logger.info(
+            f"📋 正在讀取新入貨紀錄 "
+            f"(MoveTypeID=1, SID > {last_sid}, BillDate >= {bill_start})..."
+        )
+        df = self.db.execute_query(
+            sql, params={"last_sid": last_sid, "bill_start": bill_start}
+        )
+        if not df.empty:
+            logger.info(
+                f"✅ 已取得 {len(df)} 筆新入貨紀錄 "
+                f"(SID {int(df['SID'].min())}～{int(df['SID'].max())})"
+            )
+        else:
+            logger.info("ℹ️ 無新入貨紀錄")
+        return df
+
     def get_inbound_movements_for_min_multiple(self, years=2):
         """
         讀取入貨紀錄（MoveTypeID=1），供推算 Min/Multiple 使用。
