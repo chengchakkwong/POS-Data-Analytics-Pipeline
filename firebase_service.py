@@ -486,7 +486,7 @@ class FirebaseManager:
                 'OriQty': item.get('OriQty'),
                 'ChQty': item.get('ChQty'),
                 'NewQty': item.get('NewQty'),
-                'SupplierName1': item.get('SupplierName1'),
+                'ProductType2Name1': item.get('ProductType2Name1'),
                 'invNo': item.get('invNo'),
                 'Note': item.get('Note'),
                 'syncedAt': synced_at,

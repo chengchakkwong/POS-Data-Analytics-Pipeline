@@ -429,7 +429,7 @@ python upload_final_inventory_plan_to_firebase.py --csv "data/insights/final_inv
 1. **`pos_service.py`**
    - 新增 `get_new_inbound_movements(last_sid=0, days=14)`：以 `SID` watermark + `BillDate >= 最近 14 天` 雙條件做增量查詢。
    - 即使 `last_sid=0`（首次執行）也只拿最近兩週資料，不會搬動所有歷史。
-   - 撈取欄位：SID、BillDate、GoodsNo、Barcode、GoodsName1、OriQty、ChQty、NewQty、SupplierName1、invNo、Note。
+   - 撈取欄位：SID、BillDate、GoodsNo、Barcode、GoodsName1、OriQty、ChQty、NewQty、ProductType2Name1、invNo、Note。
 
 2. **`firebase_service.py`**
    - 新增 `_generate_inbound_hash(item)`：以 SID + 核心欄位生成指紋。

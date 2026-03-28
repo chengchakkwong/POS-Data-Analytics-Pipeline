@@ -111,7 +111,7 @@ class POSDataService:
         且 BillDate 在最近 days 天內的新列。
         供 inbound_movements 同步到 Firebase 使用。
         欄位：SID, BillDate, GoodsNo, Barcode, GoodsName1, OriQty, ChQty, NewQty,
-              SupplierName1, invNo, Note
+              ProductType2Name1（供應商）, invNo, Note
 
         days 預設 14 天（Admin 核對容忍 ±7 天，14 天窗口足夠覆蓋最新一批到貨）。
         即使 last_sid=0 也只拿近 days 天，不會搬動所有歷史資料。
@@ -121,7 +121,7 @@ class POSDataService:
         )
         sql = (
             "SELECT SID, BillDate, GoodsNo, Barcode, GoodsName1, "
-            "OriQty, ChQty, NewQty, SupplierName1, invNo, Note "
+            "OriQty, ChQty, NewQty, ProductType2Name1, invNo, Note "
             "FROM dbo.GoodsStockMovement "
             "WHERE MoveTypeID = 1 AND SID > :last_sid "
             "AND BillDate >= :bill_start "

@@ -45,7 +45,7 @@
 |------------------|------------------|
 | **products**     | ProductCode, Barcode, Name, CurrStock, RetailPrice, Category, Supplier，以及其他庫存主檔欄位 |
 | **replenishment**| 同 products 全部欄位 + LastInCost, AvgCost, InboundLocation, FirstOrderQty, NoteDescription, guessed_min, guessed_multiple |
-| **inbound_movements** | 由 SQL 入貨紀錄同步而來（MoveTypeID=1）：SID、BillDate、GoodsNo、OriQty、ChQty、NewQty、SupplierName1、Barcode、GoodsName1、invNo、Note、syncedAt |
+| **inbound_movements** | 由 SQL 入貨紀錄同步而來（MoveTypeID=1）：SID、BillDate、GoodsNo、OriQty、ChQty、NewQty、ProductType2Name1（供應商）、Barcode、GoodsName1、invNo、Note、syncedAt |
 | **arrivalHistory / receiving_logs** | App 掃碼輸入的到貨紀錄：arrivalQty、barcode、productCode、productNameSnapshot、createdAt、createdBy、source、note、updatedAt；並建議新增 `supplierName` 以利 Admin 核對 |
 | **inbound_summary（建議）** | Admin 畫面用摘要索引（日期 list、供應商 list、紅綠燈狀態），降低 Admin 端查詢成本 |
 
@@ -70,7 +70,7 @@
    - 設計決定：
      - `SID` 遞增主鍵做 watermark，進行增量同步。
      - Firestore document ID 使用 `SID`（一筆 SQL 入貨紀錄一份 document）。
-     - Admin 比對核心欄位：`BillDate`、`SupplierName1`、`GoodsNo`（= App 的 `productCode`）、`OriQty`、`ChQty`、`NewQty`。
+     - Admin 比對核心欄位：`BillDate`、`ProductType2Name1`（實際供應商名稱）、`GoodsNo`（= App 的 `productCode`）、`OriQty`、`ChQty`、`NewQty`。
 
 2. **App 掃碼/輸入 → `arrivalHistory`（或 `receiving_logs`）**
    - App 保存：`arrivalQty`、`barcode`、`productCode`、`productNameSnapshot`、`createdAt`、`createdBy`、`source`、`note`、`updatedAt`。
