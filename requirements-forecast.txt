@@ -1,0 +1,13 @@
+# Optional forecasting runtime for inventory_forecast.py.
+# Install after requirements.txt only when target-stock forecasting is needed.
+
+-r requirements.txt
+
+joblib>=1.3,<2
+tqdm>=4.66,<5
+prophet>=1.1,<2
+
+# NeuralProphet/PyTorch is intentionally not installed by default because it is heavy
+# and more platform-sensitive. Add it manually if you want to use that stack.
+# neuralprophet>=0.8,<1
+# torch>=2.0

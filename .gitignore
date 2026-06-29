@@ -45,6 +45,7 @@ id_dsa
 *.log
 logs/
 log/
+demo_output/
 
 # 備份文件
 *.bak
@@ -75,6 +76,11 @@ pip-delete-this-directory.txt
 *.ipynb
 .ipynb_checkpoints/
 
+# PyTorch Lightning / NeuralProphet 訓練產物（如 inventory_forecast 每次 fit 產生）
+lightning_logs/
+*.ckpt
+.lr_find_*
+
 # IDE 相關
 .vscode/
 .idea/
@@ -103,6 +109,10 @@ Base/
 *.txt
 *.parquet
 
+# sample_data/ 白名單：脫敏後的 demo 資料允許進版本庫
+!sample_data/
+!sample_data/**
+
 # 文檔文件
 # 保留正式專案文件進版控；僅排除私用/草稿報告
 docs/private_reports/
@@ -111,3 +121,6 @@ docs/_personal/
 docs/*_私用.md
 docs/*_草稿.md
 docs/*_AI參考.md
+
+!requirements.txt
+!requirements-*.txt

@@ -1,0 +1,7 @@
+# Public offline demo runtime.
+# Install this for demo_pipeline.py and demo_firebase_payload.py.
+
+-r requirements-base.txt
+
+# Optional helper used when regenerating anonymized sample_data locally.
+faker>=22.0,<40
