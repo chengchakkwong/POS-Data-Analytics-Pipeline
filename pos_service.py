@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import date, timedelta
 from pathlib import Path
 import logger_config  # 導入統一的日誌配置
+from parquet_utils import load_sales_max_date, load_sales_partitions
 
 # 使用統一的日誌配置
 logger = logging.getLogger(__name__)
@@ -183,8 +184,7 @@ class POSDataService:
         if cache_dir.exists():
             # 【優化點 1：Columnar 的威力】
             # 不需要把幾十萬筆資料全部讀進來，我們「只讀取 rDate 這一欄」來找最大日期，瞬間完成！
-            df_dates = pd.read_parquet(cache_dir, columns=["rDate"])
-            last_date = pd.to_datetime(df_dates["rDate"].max())
+            last_date = load_sales_max_date(cache_dir)
             sync_start = (last_date - timedelta(days=1)).strftime("%Y-%m-%d")
             logger.info(f"📅 發現分區快取，最後日期為 {last_date.date()}，從 {sync_start} 增量同步...")
         else:
@@ -210,8 +210,8 @@ class POSDataService:
         # 2. 為新資料建立分區欄位 (year, month)
         # ---------------------------------------------------------
         df_new['rDate'] = pd.to_datetime(df_new['rDate'])
-        df_new['year'] = df_new['rDate'].dt.year.astype(str)
-        df_new['month'] = df_new['rDate'].dt.month.astype(str).str.zfill(2) # 補零變成 '01', '02'
+        df_new['year'] = df_new['rDate'].dt.year
+        df_new['month'] = df_new['rDate'].dt.month
 
         # ---------------------------------------------------------
         # 3. 找出這次更新「影響到」哪些分區，並讀取舊資料
@@ -229,7 +229,7 @@ class POSDataService:
             logger.info(f"📂 只讀取受影響的分區進行合併: {filters}")
             
             # 【優化點 2：條件式讀取】只把「受影響的月份」舊資料讀出來，不用讀取沒變動的歷史月份！
-            df_affected_old = pd.read_parquet(cache_dir, filters=filters)
+            df_affected_old = load_sales_partitions(cache_dir, affected_partitions)
         else:
             df_affected_old = pd.DataFrame()
 

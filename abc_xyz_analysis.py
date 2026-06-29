@@ -3,7 +3,7 @@ import numpy as np
 import os
 from logger_config import get_logger
 from pathlib import Path
-from firebase_service import FirebaseManager
+from parquet_utils import load_sales_parquet
 
 logger = get_logger(__name__)
 
@@ -211,6 +211,8 @@ def analyze_abc_xyz(abc_df, sales_df):
 
 def upload_classification_to_firebase(classification_df: pd.DataFrame) -> None:
     try:
+        from firebase_service import FirebaseManager
+
         firebase = FirebaseManager()
         firebase.upload_classification_df(classification_df)
         logger.info("✅ 分類結果已上傳至 Firebase")
@@ -230,7 +232,7 @@ if __name__ == "__main__":
             logger.error("❌ 錯誤: 找不到輸入檔案，請確認路徑。")
         else:
             df_stock = pd.read_csv(input_stock)
-            df_sales = pd.read_parquet(input_sales)
+            df_sales = load_sales_parquet(input_sales)
             
             # 1. 篩選最近 12 個月的數據做 ABC (價值)
             df_sales['rDate'] = pd.to_datetime(df_sales['rDate'])

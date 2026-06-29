@@ -10,6 +10,8 @@ from tqdm.auto import tqdm
 import contextlib
 import joblib
 
+from parquet_utils import load_sales_parquet
+
 # --- 終極靜音設定：封殺所有底層碎碎念 ---
 logging.getLogger('prophet').setLevel(logging.ERROR)
 logging.getLogger('neuralprophet').setLevel(logging.ERROR)
@@ -228,7 +230,7 @@ def main():
         
         # 讀取歷史銷售
         if input_sales.endswith('.parquet') or os.path.isdir(input_sales):
-            df_sales = pd.read_parquet(input_sales)
+            df_sales = load_sales_parquet(input_sales)
         else:
             df_sales = pd.read_csv(input_sales)
             

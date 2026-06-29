@@ -11,6 +11,47 @@
 
 ---
 
+## 2026-06-29 修正 Hive 分區 Parquet 讀取（`parquet_utils.py`）
+
+### 今天做了什麼
+
+新增共用模組 `parquet_utils.py`，將銷售快取 `data/processed/vw_GoodsDailySales_partitioned/` 的讀取，從 `pd.read_parquet()` 改為 **PyArrow Dataset（`partitioning="hive"`）**，修復在 `pandas 2.3.3` + `pyarrow 22.0.0` 下讀取分區資料夾時出現的：
+
+`ValueError: Categorical categories must be unique`
+
+### 為什麼要改
+
+- 2025-03 起銷售快取改為 **Hive 分區 Parquet**（`year=.../month=...`），寫入仍用 `to_parquet(..., partition_cols=['year','month'])`。
+- **第一次 ETL** 只寫入、不讀舊快取，所以 `pos_system_v2.py` 看似正常。
+- **第二次增量同步**（`pos_service.sync_daily_sales` 讀 `rDate` / 受影響分區）與 **ABC 分析**（整包讀歷史銷售）才會踩雷。
+- 這不是 conda / pip 環境裝壞，而是 `pd.read_parquet(分區資料夾)` 與分區 metadata 合併時的已知相容性問題；`pyarrow.dataset` 讀法已在本機驗證可用。
+
+### 改了什麼
+
+1. **新增 `parquet_utils.py`**
+   - `load_sales_parquet()`：讀單檔或整包分區目錄（分析、預測用）。
+   - `load_sales_max_date()`：增量同步時取最大 `rDate`。
+   - `load_sales_partitions()`：只讀指定 `year/month` 分區（合併新銷售用）。
+
+2. **改用新讀法的檔案**
+   - `pos_service.py`：`sync_daily_sales()` 內兩處讀取。
+   - `abc_xyz_analysis.py`：讀 `vw_GoodsDailySales_partitioned`。
+   - `inventory_forecast.py`：同上。
+
+3. **未改動**
+   - Parquet **寫入**邏輯（`to_parquet` + `partition_cols`）維持不變。
+   - `demo_pipeline.py` 仍讀單檔 `sample_data/sales.parquet`，不受影響。
+
+### 驗證方式
+
+```bash
+python -c "from parquet_utils import load_sales_parquet; df=load_sales_parquet('data/processed/vw_GoodsDailySales_partitioned'); print(len(df))"
+python pos_system_v2.py
+python abc_xyz_analysis.py
+```
+
+---
+
 ## 2025-03-17 新增「預測結果上傳 Firestore」腳本（`upload_final_inventory_plan_to_firebase.py`）
 
 ### 今天做了什麼
