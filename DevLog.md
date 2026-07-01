@@ -52,6 +52,27 @@ python abc_xyz_analysis.py
 
 ---
 
+## 2026-06-29 Web App 補貨頁備註顯示（跨專案）
+
+### 背景
+
+`abc_xyz_analysis.py` 已將 `ABC_Class`、`XYZ_Class`、小寫 **`note`**（POS `Note`）上傳至 Firestore `replenishment`，但管理端補貨建議頁詳情仍顯示 `—`。
+
+### 根因
+
+`my-barcode-app` 的 **`GET /api/forecast`**（`api/forecast.js`）組回傳 JSON 時未轉發 `note` / `NoteDescription` / `FirstOrderQty`；前端 `ReplenishmentPage.jsx` 直接讀 `item.note` 等欄位。
+
+### Web App 修正（另庫）
+
+- `api/forecast.js`：回傳 `note: d.note ?? d.Note ?? ''`、`NoteDescription`、`FirstOrderQty`。
+- 文件：`my-barcode-app` 之 `docs/FORECAST_RESTOCK.md` §3.4、`docs/API.md`、`CHANGELOG.md` [Unreleased]。
+
+### Pipeline 端
+
+- `docs/使用說明.md` §三 已補充 Firebase 上傳欄位與 Web App 對照；本庫程式無需改動。
+
+---
+
 ## 2025-03-17 新增「預測結果上傳 Firestore」腳本（`upload_final_inventory_plan_to_firebase.py`）
 
 ### 今天做了什麼

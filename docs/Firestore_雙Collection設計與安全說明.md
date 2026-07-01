@@ -15,6 +15,15 @@
 
 從資料流角度可視為 **Fan-out 寫入**（同一來源寫入多處）；本專案依「用途」與「權限」拆成兩 collection，各自服務不同角色與場景。架構決策脈絡（含為何採客戶端計算、為何拆兩 collection）見 **[專案心路歷程與架構決策.md](專案心路歷程與架構決策.md)**。
 
+**備註欄位與 Web App 對照（2026-06-29）**：
+
+| Firestore 欄位 | 寫入來源 | Web App（`GET /api/forecast`） |
+|----------------|----------|--------------------------------|
+| `note`（小寫） | `abc_xyz_analysis.py` → `upload_classification_df`（POS `Note` 原文） | 詳情「備註 (note)」 |
+| `Note`、`NoteDescription`、`FirstOrderQty` | `POS_Sync_Tool.py` → `replenishment_service.prepare()` | API 以 `note ?? Note` 合併；另回傳「備註說明」「首單量」 |
+
+詳見 `my-barcode-app/docs/FORECAST_RESTOCK.md` §3.4。
+
 ---
 
 ## 二、為何拆成兩個 Collection？
