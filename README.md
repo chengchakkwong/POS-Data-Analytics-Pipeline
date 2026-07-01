@@ -101,15 +101,12 @@ flowchart LR
 
 ### Screenshots / 截圖
 
-> Placeholder — internal web app screenshots to be added (anonymize product names/prices first).  
-> 佔位區 — 內部 web app 截圖待補（請先將商品名稱/價格脫敏）。
-
 | Replenishment board | Price & stock lookup |
 |---------------------|----------------------|
-| `docs/assets/webapp_replenishment.png` *(to be added)* | `docs/assets/webapp_product.png` *(to be added)* |
+| ![Replenishment board](docs/assets/webapp_replenishment.png) | ![Price and stock lookup](docs/assets/webapp_product.png) |
 
-> Note: the web app is a separate internal project; this section shows where the analytics land downstream.  
-> 註：web app 為獨立的內部專案，此段展示分析結果的下游落地點。
+Downstream web app (separate internal project): replenishment suggestions and product lookup after Pipeline sync.  
+下游 Web App（獨立內部專案）：Pipeline 同步後的補貨建議與商品查價畫面（截圖已脫敏）。
 
 ## Offline Demo (no SQL Server) / 離線 Demo（不需 SQL Server）
 
