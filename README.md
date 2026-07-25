@@ -31,13 +31,13 @@ End-to-end Python pipeline that turns POS SQL data into decision-ready analytics
 - **Data cleansing**: Normalize newline/whitespace issues in POS source fields.
 - **AdjustedCost logic**: Estimate conservative cost for misc items to stabilize margin analytics.
 - **ABC / XYZ classification**: Rank products by profit contribution and demand variability; attach strategy labels.
-- **Hybrid target-stock planning**: Apply Prophet forecasting to data-sufficient AX/AY/BX/BY SKUs (at least 12 months of monthly sales); use run-rate, recent-sales, seasonal, and ordering rules for other products. The web app calculates manager-reviewed suggested orders from `Target_Stock`, on-hand inventory, and order constraints.
+- **Hybrid target-stock planning**: The optional target-stock module uses time-series forecasting for data-sufficient AX/AY/BX/BY SKUs (at least 12 months of monthly sales), preferring NeuralProphet when installed and otherwise using Prophet. Other products use interpretable run-rate, recent-sales, seasonal, and ordering rules. The web app calculates manager-reviewed suggested orders from `Target_Stock`, on-hand inventory, and order constraints.
 
 - **增量 ETL**：使用分區 Parquet 快取，並只更新受影響的月份分區。
 - **資料清洗**：修正 POS 來源欄位常見的換行／空白問題。
 - **成本校正邏輯**：對雜項估算保守成本以穩定毛利分析。
 - **ABC / XYZ 分級**：依利潤貢獻與需求波動分類，並產出策略標籤。
-- **混合式目標庫存規劃**：對具足夠資料的 AX／AY／BX／BY SKU（至少 12 個月月度銷售）使用 Prophet 預測；其他商品採 run-rate、近期銷售、季節性及訂貨規則。Web App 再依 `Target_Stock`、現有庫存及起訂／倍數規則計算供管理者覆核的建議訂購量。
+- **混合式目標庫存規劃**：選用的目標庫存模組會對具足夠資料的 AX／AY／BX／BY SKU（至少 12 個月月度銷售）使用時間序列預測；已安裝 NeuralProphet 時優先採用，否則使用 Prophet。其他商品則採可解釋的 run-rate、近期銷售、季節性及訂貨規則。Web App 再依 `Target_Stock`、現有庫存及起訂／倍數規則計算供管理者覆核的建議訂購量。
 
 ## Impact / 影響
 
@@ -76,6 +76,7 @@ The following **system-record KPIs** were calculated from a local, de-identified
 **Evidence boundaries / 證據界線**：
 
 - Coverage metrics show data readiness, not classification or forecast accuracy.（覆蓋率反映資料準備程度，不等於分類或預測準確率。）
+- Target-stock values demonstrate data availability in the snapshot only, not how they were calculated. Per-SKU generation source, model/version, and run timestamp were not retained; the pilot therefore does not establish Prophet/NeuralProphet use or forecast accuracy.（目標庫存數值僅反映快照中資料可用，不代表其計算方式。由於未保存逐 SKU 的生成來源、模型／版本及執行時間，試行結果不作 Prophet／NeuralProphet 已使用或預測準確度的宣稱。）
 - Candidates are a prioritised review list; store staff retain final ordering decisions.（候選項目是優先覆核清單，最終訂貨仍由店員／管理者判斷。）
 - The current system does not persist lookup time, scan-success rate, daily active users, or final purchase-order quantities; these are not claimed as outcomes.（目前未保存查貨耗時、掃碼成功率、日活躍使用者或最終下單量，因此不以此宣稱成效。）
 - Inbound-match and issue-closure rates are withheld pending one-to-one reconciliation validation and test-record exclusion.（入貨核對與回報結案率待完成一對一核對驗證及測試資料排除後才公開。）

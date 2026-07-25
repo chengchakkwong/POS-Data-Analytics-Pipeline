@@ -35,6 +35,10 @@ We **do not** claim the following without new instrumentation:
 - Daily active users
 - Actual purchase order quantities (`Final_Order` is computed in UI only)
 
+Target-stock values demonstrate data availability in the snapshot only, not how they were calculated. Per-SKU generation source, model/version, and run timestamp were not retained; the pilot therefore does not establish Prophet/NeuralProphet use or forecast accuracy.
+
+目標庫存數值僅反映快照中資料可用，不代表其計算方式。由於未保存逐 SKU 的生成來源、模型／版本及執行時間，試行結果不作 Prophet／NeuralProphet 已使用或預測準確度的宣稱。
+
 ## Observation window
 
 Recommended: **last 12 weeks** of stable usage after rollout. Record start/end dates in all public summaries.
