@@ -1,8 +1,8 @@
 # Retail POS Data Analytics Pipeline
 
-End-to-end Python pipeline that turns raw POS SQL data into decision-ready analytics (ABC/XYZ classification, margin correction, and inventory health) for mid-size retail.
+End-to-end Python pipeline that turns POS SQL data into decision-ready analytics: ABC/XYZ classification, margin correction, and target-stock planning for retail operations.
 
-以端到端 Python 資料管道，將 POS SQL 原始數據轉化為可決策的分析指標（ABC/XYZ 分級、毛利校正、庫存健康），適用於中型零售業。
+以端到端 Python 資料管道，將 POS SQL 原始數據轉化為可決策的分析指標：ABC/XYZ 分級、毛利校正及目標庫存規劃，支援零售營運。
 
 **Portfolio focus / 作品定位**：Data Analyst · Junior Data Engineer · Analytics Engineer — repeatable ETL, metric design, and reproducible offline demo.
 
@@ -17,45 +17,70 @@ End-to-end Python pipeline that turns raw POS SQL data into decision-ready analy
 
 ## Problem & Context / 問題與背景
 
-- **Data silos and manual reporting**: POS exports were fragmented, slow, and hard to reconcile.
-- **Profit distortion from misc barcodes**: Many items had zero cost, making margin and ABC analysis unreliable.
-- **Inventory blind spots**: No systematic way to detect low-stock risk or dead stock.
+- **Data silos and manual reporting**: POS data was fragmented across exports and difficult to reconcile.
+- **Margin distortion from generic-barcode items**: Missing or unreliable recorded costs could distort margin and ABC analysis.
+- **Inventory planning gap**: Replenishment review lacked systematic demand and target-stock signals.
 
-- **資料孤島與人工報表**：POS 匯出分散、耗時且難以整合。
-- **萬用條碼成本為 0 的獲利失真**：毛利與 ABC 分析不可靠。
-- **庫存盲區**：缺乏系統化的低庫存與滯銷偵測。
+- **資料孤島與人工報表**：POS 資料分散於不同匯出檔，整合與核對困難。
+- **萬用條碼的毛利失真**：成本缺失或不可靠時，會扭曲毛利與 ABC 分析。
+- **庫存規劃缺口**：補貨覆核缺乏系統化的需求與目標庫存訊號。
 
 ## Solution Highlights / 解法亮點
 
-- **Incremental ETL**: Cache sales data with partitioned Parquet to reduce DB load and speed up refresh.
-- **Data cleansing**: Normalize newline/whitespace issues from POS exports.
+- **Incremental ETL**: Cache sales data with partitioned Parquet and refresh only affected monthly partitions.
+- **Data cleansing**: Normalize newline/whitespace issues in POS source fields.
 - **AdjustedCost logic**: Estimate conservative cost for misc items to stabilize margin analytics.
 - **ABC / XYZ classification**: Rank products by profit contribution and demand variability; attach strategy labels.
-- **Inventory health**: Track days of inventory and target-stock planning for replenishment decisions.
+- **Inventory planning**: Forecast demand from sales history to generate `Target_Stock`; the web app calculates manager-reviewed suggested orders from target stock, on-hand inventory, and order constraints.
 
-- **增量 ETL**：使用分區 Parquet 快取降低資料庫壓力並加速更新。
-- **資料清洗**：修正 POS 匯出常見的換行/空白問題。
+- **增量 ETL**：使用分區 Parquet 快取，並只更新受影響的月份分區。
+- **資料清洗**：修正 POS 來源欄位常見的換行／空白問題。
 - **成本校正邏輯**：對雜項估算保守成本以穩定毛利分析。
 - **ABC / XYZ 分級**：依利潤貢獻與需求波動分類，並產出策略標籤。
-- **庫存健康指標**：支撐天數與目標庫存規劃，支援補貨決策。
+- **庫存規劃**：以銷售歷史預測需求並產出 `Target_Stock`；Web App 再依目標庫存、現有庫存及起訂／倍數規則計算供管理者覆核的建議訂購量。
 
 ## Impact / 影響
 
-**Context / 背景**：Single-store pilot · ~7,800 non-barcoded SKUs · 5 staff · 單店試行 · 約 7,800 無條碼 SKU · 5 人團隊
+**Context / 背景**：Single-store pilot · 5-person store team · 7,289 SKUs in the replenishment-data snapshot (2026-04-19 to 2026-07-13) · 單店試行 · 5 人店舖團隊 · 試行快照中的補貨資料涵蓋 7,289 個 SKU（2026-04-19 至 2026-07-13）
 
-- **Before**: No ABC/XYZ or replenishment analytics; stock via POS backend only. Staff exported SQL to Excel and estimated reorder qty per SKU from on-hand stock and last inbound qty.
-- **After**: Python pipeline produces ABC/XYZ, strategy labels, and demand-based `Target_Stock`; internal web app for daily replenishment. System handles routine SKUs; staff override for must-stock exceptions (e.g. low-profit home-goods essentials).
+- **Prior workflow**: Staff used the POS back office and SQL-to-Excel extracts to review stock and estimate reorder quantities from on-hand stock and latest inbound quantity.
+- **Delivered decision support**: The pipeline produces ABC/XYZ labels, strategy labels, and demand-based `Target_Stock` for an internal web app. Managers retain final ordering decisions and can override must-stock exceptions.
 
-- **改版前**：無 ABC/XYZ 與補貨分析，僅 POS 後台查庫存；SQL 匯出 Excel，逐項依庫存與上次進貨量估計補貨量。
-- **改版後**：管道產出 ABC/XYZ、策略標籤與 `Target_Stock`，內部 Web App 供每日補貨；常規 SKU 由系統建議，家品必備等例外由人手把關。
+- **原有流程**：店員以 POS 後台及 SQL 匯出 Excel 檢視庫存，按現貨量與最近入貨量估計補貨數量。
+- **交付的決策支援**：管道產出 ABC/XYZ、策略標籤與需求導向的 `Target_Stock`，供內部 Web App 使用；最終訂貨仍由管理者判斷，必備商品等例外可人工覆核。
 
 - **Pipeline**: Incremental Parquet sync → metrics → Firestore → web app.
 - **Misc barcodes**: `AdjustedCost` logic for generic-barcode SKUs in [`abc_xyz_analysis.py`](abc_xyz_analysis.py).
-- **Inventory signals**: Strategy labels (e.g. `CZ` for slow-mover review); replenishment board uses `Target_Stock` vs on-hand stock.
+- **Inventory signals**: Strategy labels (e.g. `CZ` for potential retirement review); replenishment board compares `Target_Stock` with on-hand stock.
 
 - **管道**：增量 Parquet → 指標 → Firestore → Web App。
 - **萬用條碼**：[`abc_xyz_analysis.py`](abc_xyz_analysis.py) 內 `AdjustedCost` 校正邏輯。
-- **庫存信號**：策略標籤（如 `CZ` 滯銷檢視）；補貨看板以 `Target_Stock` 與現庫存差額排優先序。
+- **庫存信號**：策略標籤（如 `CZ` 考慮汰換檢視）；補貨看板比較 `Target_Stock` 與現有庫存。
+
+## Pilot Evaluation / 試行評估
+
+The following **system-record KPIs** were calculated from a local, de-identified Firestore snapshot using [`scripts/evaluate_pilot.py`](scripts/evaluate_pilot.py). Production data and the snapshot remain private; only approved aggregates are published here.
+
+下列**系統紀錄 KPI**由本機去識別化 Firestore snapshot，以 [`scripts/evaluate_pilot.py`](scripts/evaluate_pilot.py) 計算。正式資料與 snapshot 均維持私有；本頁只公開已核准的彙總結果。
+
+**Observation window / 觀測期間**：2026-04-19 to 2026-07-13 · Single-store pilot / 單店試行
+
+| Metric / 指標 | Result / 結果 | Interpretation / 解讀 |
+| --- | ---: | --- |
+| Replenishment SKUs / 補貨資料 SKU | 7,289 | Current replenishment-data snapshot / 當時補貨資料快照 |
+| ABC/XYZ coverage / 分級覆蓋率 | 97.5% (7,109 / 7,289) | SKU with both classification fields / 同時具備兩個分級欄位 |
+| Target-stock coverage / 目標庫存覆蓋率 | 97.4% (7,102 / 7,289) | SKU with a target-stock value / 具備目標庫存數值 |
+| Replenishment candidates / 補貨候選 SKU | 2,149 (29.5%) | `Target_Stock` exceeds usable on-hand stock; requires manager review / 需管理者覆核的候選清單，非自動下單 |
+| Arrival records / 到貨紀錄 | 392 | Structured arrival entries during the window / 觀測期內的結構化到貨紀錄 |
+| Distinct operators / 不同操作人 | 4 | Based on de-identified operator names recorded in arrival entries / 依到貨紀錄中的去識別化操作人名稱統計 |
+**Evidence boundaries / 證據界線**：
+
+- Coverage metrics show data readiness, not classification or forecast accuracy.（覆蓋率反映資料準備程度，不等於分類或預測準確率。）
+- Candidates are a prioritised review list; store staff retain final ordering decisions.（候選項目是優先覆核清單，最終訂貨仍由店員／管理者判斷。）
+- The current system does not persist lookup time, scan-success rate, daily active users, or final purchase-order quantities; these are not claimed as outcomes.（目前未保存查貨耗時、掃碼成功率、日活躍使用者或最終下單量，因此不以此宣稱成效。）
+- Inbound-match and issue-closure rates are withheld pending one-to-one reconciliation validation and test-record exclusion.（入貨核對與回報結案率待完成一對一核對驗證及測試資料排除後才公開。）
+
+Full methodology: [`docs/PILOT_EVALUATION.md`](docs/PILOT_EVALUATION.md)
 
 ## Architecture & Data Flow / 架構與資料流程
 
@@ -66,34 +91,30 @@ flowchart LR
   Clean["Cleaning & Normalization"]
   Cache["Parquet Cache (PyArrow)"]
   Metrics["ABC / XYZ / Inventory Metrics"]
-  Outputs["Decision-ready CSV outputs"]
-  Report["Automated HTML Report (roadmap)"]
+  Outputs["Analytics CSV outputs"]
   PosDB --> Extract --> Clean --> Cache --> Metrics --> Outputs
-  Outputs -.-> Report
 ```
 
 **Current outputs / 目前產出**：structured CSV files under `data/insights/` (production) or `demo_output/` (offline demo).  
-**Roadmap / 規劃中**：lightweight automated HTML analytics report (metrics computed in Python; narrative/layout optional LLM assist).
 
 ## Result Delivery / 成果落地
 
-The pipeline does not stop at CSV files. In production, computed metrics are incrementally written to **Firestore** and consumed by an internal web app that store staff use daily for price/stock lookup and replenishment.
+The pipeline does not stop at CSV files. In production, computed metrics are incrementally written to **Firestore** and consumed by an internal web app for price/stock lookup and replenishment workflows.
 
-分析結果不止於 CSV。正式環境中，計算出的指標會**增量寫入 Firestore**，並由內部 web app 直接消費，供店員每日查價、查庫存與補貨使用。
+分析結果不止於 CSV。正式環境中，計算出的指標會**增量寫入 Firestore**，並由內部 Web App 直接使用，支援查價、查庫存與補貨工作流程。
 
 ```mermaid
 flowchart LR
   ETL["Python ETL + ABC/XYZ + Inventory Metrics"] --> Upload["firebase_service.py (incremental upload)"]
-  Upload --> FS[("Firestore: products / replenishment / classification / inbound_movements")]
+  Upload --> FS[("Firestore: products / replenishment / inbound_movements")]
   FS --> Scan["Web App: price & stock lookup"]
   FS --> Repl["Web App: replenishment board"]
 ```
 
 **How results are delivered / 結果如何交付**：
 
-- **`products`** — stock master with price/quantity → web app price & stock lookup.（商品主檔，供查價/查庫存）
-- **`classification`** — ABC/XYZ labels → replenishment board badges.（ABC/XYZ 標籤，補貨頁分級顯示）
-- **`replenishment`** — target stock & order rules → replenishment suggestions.（目標庫存與補貨規則）
+- **`products`** — stock master, price/quantity, and ABC/XYZ labels → web app price & stock lookup.（商品主檔、價格／庫存及 ABC/XYZ 標籤，供查價／查庫存）
+- **`replenishment`** — target stock, order rules, and ABC/XYZ labels → replenishment suggestions.（目標庫存、補貨規則及 ABC/XYZ 標籤）
 - **`inbound_movements`** — inbound records → admin arrival verification.（入貨單據，後台到貨核對）
 
 **Engineering notes / 工程設計**：uploads use per-record MD5 hashing to skip unchanged documents (saving write quota) and Firestore batch writes for throughput. See [`firebase_service.py`](firebase_service.py).  
@@ -105,8 +126,19 @@ flowchart LR
 |---------------------|----------------------|
 | ![Replenishment board](docs/assets/webapp_replenishment.png) | ![Price and stock lookup](docs/assets/webapp_product.png) |
 
-Downstream web app (separate internal project): replenishment suggestions and product lookup after Pipeline sync.  
-下游 Web App（獨立內部專案）：Pipeline 同步後的補貨建議與商品查價畫面（截圖已脫敏）。
+Downstream web app: the public, portfolio-safe [Retail Barcode Stock & Replenishment Web App](https://github.com/chengchakkwong/retail-operations-web-app) shows the staff and admin workflows that consume this pipeline's Firestore data. The production operational implementation remains private.
+
+下游 Web App：公開、適合作品集檢視的 [Retail Barcode Stock & Replenishment Web App](https://github.com/chengchakkwong/retail-operations-web-app) 展示店員與管理端如何使用本 Pipeline 寫入 Firestore 的資料；正式營運實作則維持私有。
+
+## Related Applications / 相關應用
+
+This repository is the public analytics and data-delivery component of a retail operations system:
+
+- **This repository — `POS-Data-Analytics-Pipeline`**: extracts POS data, computes analytics and replenishment signals, and incrementally syncs the resulting records to Firestore.
+- **[Retail Barcode Stock & Replenishment Web App](https://github.com/chengchakkwong/retail-operations-web-app)**: public, portfolio-safe source release that presents the downstream staff and admin workflows.
+- **Private operational app**: contains operation-specific implementation details and is intentionally not linked or published. Production credentials and real store data are excluded from all repositories.
+
+本 repository 是零售營運系統中公開的分析與資料交付部分：Pipeline 負責抽取、分析、同步；公開 Web App 展示下游操作流程；正式營運 App 則因營運細節維持私有。
 
 ## Offline Demo (no SQL Server) / 離線 Demo（不需 SQL Server）
 
@@ -162,8 +194,9 @@ Build the document payloads that would be written to Firestore (offline, no netw
 python demo_firebase_payload.py
 ```
 
-Writes `demo_output/firebase_payload/{products,classification}.json` and prints `would upload / skipped`. Re-run it to see all documents skipped (unchanged).  
-輸出 `products.json`、`classification.json` 並印出上傳/略過統計；再跑一次會看到全部略過（未變動）。
+Writes `demo_output/firebase_payload/{products,classification}.json` and prints `would upload / skipped`. `classification.json` is an offline payload preview, not a separate production Firestore collection. Re-run it to see all documents skipped (unchanged).
+
+輸出 `products.json`、`classification.json` 並印出上傳／略過統計；`classification.json` 是離線 payload 預覽，並非正式 Firestore 的獨立 collection。再跑一次會看到全部略過（未變動）。
 
 Regenerate the sample (requires real data under `data/processed/`, local only)：
 
@@ -183,23 +216,26 @@ For internal / production use with a live POS database:
 pip install -r requirements.txt
 # Create .env with DB credentials (see Configuration below)
 python pos_system_v2.py      # Extract + cache to data/processed/
-python abc_xyz_analysis.py   # ABC-XYZ metrics -> data/insights/
+python POS_Sync_Tool.py      # Sync products, replenishment base fields, and inbound records to Firestore
+python abc_xyz_analysis.py   # ABC-XYZ metrics -> data/insights/ and classification fields -> Firestore
 
 # Optional target-stock forecast:
 pip install -r requirements-forecast.txt
-python inventory_forecast.py # Target stock plan (optional; heavy deps)
+python inventory_forecast.py                 # Target-stock plan -> data/insights/
+python upload_final_inventory_plan_to_firebase.py  # Target_Stock -> Firestore replenishment
 ```
 
-**內部使用**：完整操作步驟（第一次使用、每日流程、預測與補貨）請見 **[docs/使用說明.md](docs/使用說明.md)**。
+`pos_system_v2.py`, `POS_Sync_Tool.py`, and the optional forecast upload are separate operational steps; see **[docs/使用說明.md](docs/使用說明.md)** for the required sequence and scheduling guidance.
+
+**內部使用**：`pos_system_v2.py`、`POS_Sync_Tool.py` 與選用的預測上傳為獨立操作步驟；完整順序及排程建議請見 **[docs/使用說明.md](docs/使用說明.md)**。
 
 ## Tech Stack / 技術棧
 
 - **Language**: Python 3.11 recommended
 - **Data**: Pandas, NumPy, PyArrow
 - **Database**: SQLAlchemy, SQL Server (pyodbc)
-- **Outputs**: Decision-ready CSV analytics; automated HTML report *(roadmap)*
-- **Optional**: Plotly / Matplotlib (charts), LLM-assisted narrative generation *(planned)*
-- **Forecasting** *(optional)*: NeuralProphet / Prophet, joblib, tqdm
+- **Delivery**: Decision-ready CSV analytics and incremental Firestore document sync
+- **Forecasting** *(optional)*: Prophet, joblib, tqdm; NeuralProphet can be added manually
 - **Env**: python-dotenv, venv / pip
 
 ## Project Structure / 檔案結構
@@ -208,9 +244,11 @@ python inventory_forecast.py # Target stock plan (optional; heavy deps)
 |------|------|
 | [`demo_pipeline.py`](demo_pipeline.py) | Offline demo entry — reads `sample_data/`, writes `demo_output/` |
 | [`pos_system_v2.py`](pos_system_v2.py) | Production orchestrator — sync pipeline |
+| [`POS_Sync_Tool.py`](POS_Sync_Tool.py) | Sync product, replenishment-base, and inbound records to Firestore |
 | [`pos_service.py`](pos_service.py) | SQL Server extract, cleansing, incremental Parquet sync |
 | [`abc_xyz_analysis.py`](abc_xyz_analysis.py) | Core analytics — ABC/XYZ, AdjustedCost, strategy labels |
 | [`inventory_forecast.py`](inventory_forecast.py) | Target stock planning (optional forecast module) |
+| [`upload_final_inventory_plan_to_firebase.py`](upload_final_inventory_plan_to_firebase.py) | Write optional target-stock plans to Firestore |
 | [`db_utils.py`](db_utils.py) | DB connection and environment handling |
 | [`scripts/anonymize_data.py`](scripts/anonymize_data.py) | Generate anonymized `sample_data/` from local processed data |
 | [`sample_data/`](sample_data/) | Committed anonymized demo dataset |
