@@ -31,13 +31,13 @@ End-to-end Python pipeline that turns POS SQL data into decision-ready analytics
 - **Data cleansing**: Normalize newline/whitespace issues in POS source fields.
 - **AdjustedCost logic**: Estimate conservative cost for misc items to stabilize margin analytics.
 - **ABC / XYZ classification**: Rank products by profit contribution and demand variability; attach strategy labels.
-- **Inventory planning**: Forecast demand from sales history to generate `Target_Stock`; the web app calculates manager-reviewed suggested orders from target stock, on-hand inventory, and order constraints.
+- **Hybrid target-stock planning**: Apply Prophet forecasting to data-sufficient AX/AY/BX/BY SKUs (at least 12 months of monthly sales); use run-rate, recent-sales, seasonal, and ordering rules for other products. The web app calculates manager-reviewed suggested orders from `Target_Stock`, on-hand inventory, and order constraints.
 
 - **增量 ETL**：使用分區 Parquet 快取，並只更新受影響的月份分區。
 - **資料清洗**：修正 POS 來源欄位常見的換行／空白問題。
 - **成本校正邏輯**：對雜項估算保守成本以穩定毛利分析。
 - **ABC / XYZ 分級**：依利潤貢獻與需求波動分類，並產出策略標籤。
-- **庫存規劃**：以銷售歷史預測需求並產出 `Target_Stock`；Web App 再依目標庫存、現有庫存及起訂／倍數規則計算供管理者覆核的建議訂購量。
+- **混合式目標庫存規劃**：對具足夠資料的 AX／AY／BX／BY SKU（至少 12 個月月度銷售）使用 Prophet 預測；其他商品採 run-rate、近期銷售、季節性及訂貨規則。Web App 再依 `Target_Stock`、現有庫存及起訂／倍數規則計算供管理者覆核的建議訂購量。
 
 ## Impact / 影響
 
