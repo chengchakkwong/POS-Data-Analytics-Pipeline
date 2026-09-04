@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pos-pipeline"
+version = "0.3.0"
+description = "Retail POS data analytics pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+pos-pipeline = "pos_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

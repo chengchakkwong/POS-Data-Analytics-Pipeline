@@ -1,0 +1,1 @@
+"""Data extraction from POS SQL Server."""
