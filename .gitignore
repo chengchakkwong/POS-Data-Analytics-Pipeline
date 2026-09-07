@@ -121,6 +121,7 @@ docs/_personal/
 docs/*_私用.md
 docs/*_草稿.md
 docs/*_AI參考.md
+investigations/invoice_input_time/*_內部版.md
 
 !requirements.txt
 !requirements-*.txt
