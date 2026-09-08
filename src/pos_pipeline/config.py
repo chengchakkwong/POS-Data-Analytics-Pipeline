@@ -2,6 +2,8 @@
 
 from pathlib import Path
 from dotenv import load_dotenv
+import os
+
 
 def find_project_root(start: Path | None = None) -> Path:
     """Walk upward until pyproject.toml is found."""
@@ -18,3 +20,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 DATA_DIR = PROJECT_ROOT / "data"
 PROCESSED_DIR = DATA_DIR / "processed"
 STOCK_MASTER_CSV = PROCESSED_DIR / "DetailGoodsStockToday.csv"
+
+
+FIREBASE_KEY_PATH = Path(
+    os.getenv("FIREBASE_KEY_PATH", str(PROJECT_ROOT / "serviceAccountKey.json"))
+)

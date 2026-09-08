@@ -1,0 +1,11 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - "-f"
+      - Dockerfile.daily
+      - "-t"
+      - "us-central1-docker.pkg.dev/$PROJECT_ID/pos-pipeline/daily:v0.1"
+      - "."
+images:
+  - "us-central1-docker.pkg.dev/$PROJECT_ID/pos-pipeline/daily:v0.1"

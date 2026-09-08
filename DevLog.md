@@ -525,3 +525,18 @@ python upload_final_inventory_plan_to_firebase.py --csv "data/insights/final_inv
 - 評估是否需要 `inbound_summary` 摘要 document 以降低 Admin 端查詢成本。
 - 確認 `MoveTypeID=1` 對應的業務含義（查 DB 定義表）。
 - 若未來資料量很大，考慮對 `inbound_movements` 做定期清理或歸檔（例如只保留最近 3 個月）。
+
+## 2026-09-08 Pipeline v3：Firestore daily sync + Cloud Run
+
+### 做了什麼
+- `delivery_to_firebase/`：Firebase Admin、products／replenishment 最小上傳。
+- Hash 狀態改存 Firestore `sync_state/{products|replenishment}`，換機不必清本機 cache 才增量。
+- `jobs/daily.py` 串接全量上傳（hash 未變則跳過寫入）。
+- `FIREBASE_KEY_PATH` 可從環境變數覆寫，供容器掛載金鑰。
+- `Dockerfile.daily` + Cloud Build + Cloud Run Job + Scheduler（營業時段每 2 小時）。
+- 部署說明：`docs/CLOUD_RUN_DAILY.md`。
+
+### 還沒做
+- `inbound_movements`
+- App 顯示 `lastSyncedAt`
+- 首次排程成功驗證（待翌日 SQL 營業時段）

@@ -236,6 +236,7 @@ python upload_final_inventory_plan_to_firebase.py  # Target_Stock -> Firestore r
 - **Data**: Pandas, NumPy, PyArrow
 - **Database**: SQLAlchemy, SQL Server (pyodbc)
 - **Delivery**: Decision-ready CSV analytics and incremental Firestore document sync
+- **Scheduled sync (v3)**: Cloud Build → Artifact Registry → Cloud Run Job + Cloud Scheduler（細節見 [`docs/CLOUD_RUN_DAILY.md`](docs/CLOUD_RUN_DAILY.md)）
 - **Forecasting** *(optional)*: Prophet, joblib, tqdm; NeuralProphet can be added manually
 - **Env**: python-dotenv, venv / pip
 
@@ -244,6 +245,9 @@ python upload_final_inventory_plan_to_firebase.py  # Target_Stock -> Firestore r
 | Path | Role |
 |------|------|
 | [`demo_pipeline.py`](demo_pipeline.py) | Offline demo entry — reads `sample_data/`, writes `demo_output/` |
+| [`src/pos_pipeline/`](src/pos_pipeline/) | v3 package — `cli daily` extracts stock and syncs Firestore |
+| [`Dockerfile.daily`](Dockerfile.daily) | Image for the scheduled daily job |
+| [`docs/CLOUD_RUN_DAILY.md`](docs/CLOUD_RUN_DAILY.md) | Cloud Run / Scheduler runbook |
 | [`pos_system_v2.py`](pos_system_v2.py) | Production orchestrator — sync pipeline |
 | [`POS_Sync_Tool.py`](POS_Sync_Tool.py) | Sync product, replenishment-base, and inbound records to Firestore |
 | [`pos_service.py`](pos_service.py) | SQL Server extract, cleansing, incremental Parquet sync |
@@ -270,6 +274,8 @@ DB_UID=your_username
 DB_PWD=your_password
 DB_TRUST_CERT=yes
 ```
+
+Optional: `FIREBASE_KEY_PATH` overrides the default `serviceAccountKey.json` path (used by the Cloud Run job).
 
 ## Privacy & Data Handling / 隱私與資料處理
 

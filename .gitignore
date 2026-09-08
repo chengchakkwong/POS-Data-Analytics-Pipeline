@@ -60,6 +60,7 @@ pycache/
 *.py[cod]
 *$py.class
 *.so
+*.egg-info/
 .Python
 venv/
 env/
