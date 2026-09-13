@@ -28,7 +28,7 @@
 - [x] 上傳 `products`（最小版 + Firestore hash 增量）
 - [x] 上傳 `replenishment`（最小版 + Firestore hash 增量）
 - [x] 串進 `jobs/daily.py`（全量呼叫已就緒；hash 相同則跳過寫入）
-- [ ] 上傳 `inbound_movements`
+- [x] 上傳 `inbound_movements`（SID watermark + 本機驗證：344 筆）
 - [ ] 寫入「上次同步時間」供 App 顯示
 - [x] `.gitignore` 加入 `*.egg-info/`
 

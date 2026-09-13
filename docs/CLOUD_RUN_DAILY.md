@@ -1,10 +1,11 @@
 # Cloud Run daily job
 
-v3 `daily` job: POS SQL → stock CSV → Firestore `products` / `replenishment`.
-Incremental writes use content hashes stored in Firestore `sync_state`.
+v3 `daily` job: POS SQL → stock CSV → Firestore `products` / `replenishment` / `inbound_movements`.
+Product and replenishment writes use content hashes in Firestore `sync_state`.
+Inbound writes use `sync_state/inbound_movements.lastSid` as a watermark.
 Sales detail is not uploaded.
 
-`inbound_movements` and App-facing `lastSyncedAt` are not in this job yet.
+App-facing `lastSyncedAt` is not in this job yet.
 
 ## Local run
 

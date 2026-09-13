@@ -5,6 +5,10 @@ from pos_pipeline.database.connection import check_connection
 from pos_pipeline.delivery_to_firebase.products import upload_products
 from pos_pipeline.delivery_to_firebase.replenishment import upload_replenishment
 
+from pos_pipeline.delivery_to_firebase.inbound import upload_inbound_movements
+from pos_pipeline.delivery_to_firebase.sync_state import load_last_sid
+from pos_pipeline.extraction.inbound import fetch_new_inbound_movements
+
 def run() -> int:
     print(f"[job:daily] project root: {PROJECT_ROOT}")
 
@@ -32,4 +36,11 @@ def run() -> int:
 
     replenishment_written = upload_replenishment(df)
     print(f"[job:daily] replenishment uploaded: {replenishment_written}")
+
+    last_sid = load_last_sid()
+    inbound_df = fetch_new_inbound_movements(last_sid=last_sid)
+    print(f"[job:daily] inbound rows: {len(inbound_df)}")
+
+    inbound_written = upload_inbound_movements(inbound_df)
+    print(f"[job:daily] inbound uploaded: {inbound_written}")
     return 0

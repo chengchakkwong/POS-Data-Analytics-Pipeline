@@ -39,3 +39,46 @@ def save_hashes(state_name: str, hashes: dict[str, str]) -> None:
         {"hashes": hashes},
         merge=True,
     )
+
+
+def load_last_sid(state_name: str = "inbound_movements") -> int:
+    """Load the last processed SID from sync_state/{state_name}."""
+    db = get_firestore_client()
+    snap = db.collection(SYNC_STATE_COLLECTION).document(state_name).get()
+
+    if not snap.exists:
+        return 0
+
+    data = snap.to_dict() or {}
+    raw_value = data.get("lastSid", 0)
+
+    try:
+        last_sid = int(raw_value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"Invalid lastSid in sync_state/{state_name}: {raw_value!r}"
+        ) from error
+
+    if last_sid < 0:
+        raise ValueError(
+            f"lastSid cannot be negative: {last_sid}"
+        )
+
+    return last_sid
+
+
+def save_last_sid(
+    last_sid: int,
+    state_name: str = "inbound_movements",
+) -> None:
+    """Save the last processed SID after successful uploads."""
+    if last_sid < 0:
+        raise ValueError(
+            f"lastSid cannot be negative: {last_sid}"
+        )
+
+    db = get_firestore_client()
+    db.collection(SYNC_STATE_COLLECTION).document(state_name).set(
+        {"lastSid": int(last_sid)},
+        merge=True,
+    )
