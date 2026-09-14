@@ -8,6 +8,7 @@ import pandas as pd
 
 from parquet_utils import load_sales_parquet
 from pos_pipeline.analysis.abc import analyze_profit_abc
+from pos_pipeline.analysis.monthly_series import resolve_complete_month_cutoff
 from pos_pipeline.analysis.xyz import analyze_xyz
 from pos_pipeline.config import ABC_XYZ_CSV, SALES_PARQUET_DIR, STOCK_MASTER_CSV
 
@@ -24,7 +25,6 @@ def attach_xyz_and_strategy(
         how="left",
     )
     final_df["XYZ_Class"] = final_df["XYZ_Class"].fillna("Z")
-    final_df["CV"] = final_df["CV"].fillna(9.99)
 
     # 新品不進 X/Y/Z，與 ABC 的 New 對齊
     is_new_abc = final_df["ABC_Class"] == "New"
@@ -53,9 +53,9 @@ def attach_xyz_and_strategy(
     final_df["Strategy"] = final_df.apply(get_strategy, axis=1)
     final_df["displayname"] = final_df["Name"] + " | " + final_df["ProductCode"]
 
-    final_df["SortOrder"] = final_df["ABC_Class"].replace(
+    final_df["SortOrder"] = final_df["ABC_Class"].map(
         {"New": 0, "A": 1, "B": 2, "C": 3, "Excluded": 4}
-    )
+    ).fillna(5)
     return final_df.sort_values(
         by=["SortOrder", "Monthly_Avg_Profit"],
         ascending=[True, False],
@@ -66,6 +66,7 @@ def run_abc_xyz(
     stock_csv: Path | None = None,
     sales_dir: Path | None = None,
     output_csv: Path | None = None,
+    as_of: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Classify SKUs and write data/insights/abc_xyz_analysis.csv."""
     stock_csv = stock_csv or STOCK_MASTER_CSV
@@ -74,11 +75,26 @@ def run_abc_xyz(
 
     df_stock = pd.read_csv(stock_csv)
     df_sales = load_sales_parquet(sales_dir)
-    df_sales["rDate"] = pd.to_datetime(df_sales["rDate"])
+    required_sales = {"GoodsID", "rDate", "TotalQty", "TotalAmt"}
+    missing_sales = required_sales.difference(df_sales.columns)
+    if missing_sales:
+        missing_names = ", ".join(sorted(missing_sales))
+        raise ValueError(f"sales data is missing required columns: {missing_names}")
+    if df_sales.empty:
+        raise ValueError("sales data is empty; ABC/XYZ cannot be calculated")
 
-    last_date = df_sales["rDate"].max()
-    start_date_abc = last_date - pd.DateOffset(months=12)
-    df_sales_recent12 = df_sales[df_sales["rDate"] >= start_date_abc].copy()
+    df_sales["rDate"] = pd.to_datetime(df_sales["rDate"], errors="raise")
+    if as_of is not None:
+        df_sales = df_sales[df_sales["rDate"] <= pd.Timestamp(as_of)].copy()
+        if df_sales.empty:
+            raise ValueError("sales data has no rows on or before as_of")
+
+    cutoff_month = resolve_complete_month_cutoff(df_sales["rDate"], as_of=as_of)
+    start_month_abc = cutoff_month - pd.DateOffset(months=11)
+    cutoff_end = cutoff_month + pd.offsets.MonthEnd(0)
+    df_sales_recent12 = df_sales[
+        df_sales["rDate"].between(start_month_abc, cutoff_end)
+    ].copy()
 
     first_sale_full = (
         df_sales.groupby("GoodsID")["rDate"]
@@ -87,8 +103,8 @@ def run_abc_xyz(
         .rename(columns={"rDate": "FirstSaleDate"})
     )
     month_age = (
-        (last_date.year - first_sale_full["FirstSaleDate"].dt.year) * 12
-        + (last_date.month - first_sale_full["FirstSaleDate"].dt.month)
+        (cutoff_month.year - first_sale_full["FirstSaleDate"].dt.year) * 12
+        + (cutoff_month.month - first_sale_full["FirstSaleDate"].dt.month)
     ).clip(lower=1)
     month_age_map = dict(zip(first_sale_full["GoodsID"], month_age))
 
@@ -97,7 +113,7 @@ def run_abc_xyz(
         df_sales_recent12,
         month_age_map=month_age_map,
     )
-    xyz_df = analyze_xyz(df_sales)
+    xyz_df = analyze_xyz(df_sales, cutoff_month=cutoff_month)
     abc_xyz_df = attach_xyz_and_strategy(abc_df, xyz_df)
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
