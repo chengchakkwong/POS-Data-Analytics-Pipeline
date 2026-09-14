@@ -56,9 +56,9 @@ def check_connection(timeout: int = 5) -> bool:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True
-    except Exception:
+    except Exception as exc:
+        print(f"[db] connection failed: {type(exc).__name__}: {exc}")
         return False
-
 
 def execute_query(sql: str, params: dict | None = None) -> pd.DataFrame:
     """Run a SQL query and return a DataFrame."""

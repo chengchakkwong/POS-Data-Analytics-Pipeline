@@ -49,7 +49,7 @@
 - [x] Cloud Build 產出 `daily:v0.1`（本機不需 Docker Desktop）
 - [x] Cloud Run Job `pos-pipeline-daily` + Secret Manager
 - [x] Cloud Scheduler：`0 9-19/2 * * *`（Asia/Hong_Kong；09:00–19:00 每 2 小時）
-- [ ] 首次排程成功驗證（待 POS SQL 營業時段）
+- [x] 首次雲端驗證（手動 execute；log 含 inbound rows / uploaded）
 - [ ] Firestore 記錄 `lastSyncedAt`，App 顯示給使用者
 - [ ] `Dockerfile.analytics`（半月）
 
