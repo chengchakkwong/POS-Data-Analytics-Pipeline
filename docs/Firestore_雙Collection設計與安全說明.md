@@ -133,7 +133,7 @@ match /replenishment/{productId} {
 
 同步程式為了節省 Firestore 寫入量，使用本地快取檔與 Hash 來判斷「哪些 document 需要重寫」。
 
-- **本地快取檔**：`data/sync_cache.json`
+- **本地快取檔**：`data/cache/sync_cache.json`
   - 由 `firebase_service.FirebaseManager` 在初始化時讀入 (`_load_cache()`)，結束或同步後寫回 (`_save_cache()`)。
   - 以 `ProductCode` 或自訂 cache key（如 `repl:{ProductCode}`、`repl_min_mult:{ProductCode}`）作為索引。
 
@@ -155,7 +155,7 @@ match /replenishment/{productId} {
   - 建議沿用相同「Hash + 快取」策略以降低 Firestore 寫入量。
   - watermark 以 `SID` 控制增量讀取；cache key 可採類似 `inbound:{SID}` 避免反覆重寫未變更 document。
 
-> 若需要在程式邏輯變更後「強制全量重寫」（例如新增欄位，想讓所有既有 document 也帶上），可以人工刪除 `data/sync_cache.json` 再執行同步工具；這次會視為首次上傳，全部 document 重新寫入，之後仍回到上述的增量同步邏輯。
+> 若需要在程式邏輯變更後「強制全量重寫」（例如新增欄位，想讓所有既有 document 也帶上），可以人工刪除 `data/cache/sync_cache.json` 再執行同步工具；這次會視為首次上傳，全部 document 重新寫入，之後仍回到上述的增量同步邏輯。
 
 ---
 

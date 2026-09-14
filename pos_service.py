@@ -170,7 +170,7 @@ class POSDataService:
             logger.info("ℹ️ 無入貨紀錄")
         return df
 
-    def sync_daily_sales(self, cache_dirname="vw_GoodsDailySales_partitioned"):
+    def sync_daily_sales(self, cache_dirname="sales_daily_parquet"):
         
         """增量同步每日銷售數據，並依年月分區儲存到資料夾"""
         start_time = time.perf_counter()

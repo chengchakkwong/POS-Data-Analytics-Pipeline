@@ -221,7 +221,7 @@ def upload_classification_to_firebase(classification_df: pd.DataFrame) -> None:
 
 if __name__ == "__main__":
     input_stock = "data/processed/DetailGoodsStockToday.csv"
-    input_sales = "data/processed/vw_GoodsDailySales_partitioned"
+    input_sales = "data/processed/sales_daily_parquet"
     output_path = "data/insights/abc_xyz_analysis.csv"
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     

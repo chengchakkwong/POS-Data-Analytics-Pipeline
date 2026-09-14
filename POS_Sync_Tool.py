@@ -50,7 +50,7 @@ def select_upload_columns(df_stock):
 def sync_inbound_movements(service, fb_mgr):
     """
     從 SQL 增量讀取入貨紀錄（MoveTypeID=1），上傳至 Firebase inbound_movements collection。
-    watermark（last_sid）由 FirebaseManager 從 sync_cache.json 管理，
+    watermark（last_sid）由 FirebaseManager 從 data/cache/sync_cache.json 管理，
     每次只讀取 SID > last_sid 的新列，讀完後更新書籤。
     """
     last_sid = fb_mgr.get_inbound_last_sid()

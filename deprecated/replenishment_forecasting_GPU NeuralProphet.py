@@ -277,7 +277,7 @@ def tqdm_joblib(tqdm_object):
 
 def main():
     input_stock = "data/processed/products_details_for_replenishment.csv"
-    input_sales = "data/processed/vw_GoodsDailySales_partitioned"
+    input_sales = "data/processed/sales_daily_parquet"
     output_path = "data/insights/final_inventory_plan.csv"
     
     print(f"🚀 啟動優化版智慧補貨系統 (運算引擎: CPU 多核心模式)")

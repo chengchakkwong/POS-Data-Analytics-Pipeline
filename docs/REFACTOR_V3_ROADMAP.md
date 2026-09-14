@@ -34,7 +34,7 @@
 
 ## 稍後：半月 Analytics
 
-- [ ] 本機 sales → 增量 Parquet
+- [x] 本機 sales → 增量 Parquet（`data/processed/sales_daily_parquet`）
 - [ ] ABC/XYZ
 - [ ] Target Stock
 - [ ] 結果欄位上傳 Firestore

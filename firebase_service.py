@@ -10,7 +10,7 @@ import os
 logger = logging.getLogger(__name__)
 
 class FirebaseManager:
-    def __init__(self, key_path='serviceAccountKey.json', cache_file='data/sync_cache.json'):
+    def __init__(self, key_path='serviceAccountKey.json', cache_file='data/cache/sync_cache.json'):
         """初始化 Firebase 連線與快取機制"""
         self.cache_file = cache_file
         self.local_cache = self._load_cache()
@@ -38,6 +38,9 @@ class FirebaseManager:
 
     def _save_cache(self):
         """儲存快取檔案"""
+        cache_dir = os.path.dirname(self.cache_file)
+        if cache_dir:
+            os.makedirs(cache_dir, exist_ok=True)
         try:
             with open(self.cache_file, 'w', encoding='utf-8') as f:
                 json.dump(self.local_cache, f, ensure_ascii=False)

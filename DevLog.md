@@ -540,3 +540,10 @@ python upload_final_inventory_plan_to_firebase.py --csv "data/insights/final_inv
 - `inbound_movements`
 - App 顯示 `lastSyncedAt`
 - 首次排程成功驗證（待翌日 SQL 營業時段）
+
+## 2026-09-14 本機路徑更名
+
+- 銷售 Parquet：`data/processed/vw_GoodsDailySales_partitioned` → `data/processed/sales_daily_parquet`
+- 舊 Firebase hash：`data/sync_cache.json` → `data/cache/sync_cache.json`
+- v3 daily 的增量狀態仍在 Firestore `sync_state`，不受影響。
+

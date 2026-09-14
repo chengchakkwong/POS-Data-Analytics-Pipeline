@@ -210,7 +210,7 @@ def tqdm_joblib(tqdm_object):
 def main():
     input_labels = "data/insights/abc_xyz_analysis.csv"
     input_stock = "data/processed/products_details_for_replenishment.csv"
-    input_sales = "data/processed/vw_GoodsDailySales_partitioned"
+    input_sales = "data/processed/sales_daily_parquet"
     output_path = "data/insights/target_stock_plan.csv" # 🎯 檔名改成 目標庫存計畫
     
     print(f"🚀 啟動 AI 智慧預測引擎 (目標庫存規劃模式)")

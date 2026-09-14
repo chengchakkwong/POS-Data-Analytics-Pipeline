@@ -61,7 +61,7 @@ def upload_inventory_plan(
     csv_path: str,
     *,
     key_path: str,
-    cache_file: Optional[str] = "data/sync_cache.json",
+    cache_file: Optional[str] = "data/cache/sync_cache.json",
 ) -> None:
     df_upload = build_upload_df(csv_path)
     if df_upload.empty:
@@ -94,7 +94,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--cache",
-        default=os.path.join("data", "sync_cache.json"),
+        default=os.path.join("data", "cache", "sync_cache.json"),
         help="Local cache file path for incremental uploads",
     )
     args = parser.parse_args()

@@ -20,6 +20,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 DATA_DIR = PROJECT_ROOT / "data"
 PROCESSED_DIR = DATA_DIR / "processed"
 STOCK_MASTER_CSV = PROCESSED_DIR / "DetailGoodsStockToday.csv"
+SALES_PARQUET_DIR = PROCESSED_DIR / "sales_daily_parquet"
 
 
 FIREBASE_KEY_PATH = Path(

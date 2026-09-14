@@ -184,7 +184,7 @@ def main():
     # 設定路徑
     input_stock = "data/processed/DetailGoodsStockToday.csv"
     # 使用分區版銷售快取資料夾（由 POSDataService.sync_daily_sales 產生）
-    input_sales = "data/processed/vw_GoodsDailySales_partitioned"
+    input_sales = "data/processed/sales_daily_parquet"
     output_path = "data/insights/final_inventory_plan.csv"
     
     print("🚀 啟動零售智慧分析系統...")
