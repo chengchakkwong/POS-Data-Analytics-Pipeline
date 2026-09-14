@@ -24,6 +24,7 @@ SALES_PARQUET_DIR = PROCESSED_DIR / "sales_daily_parquet"
 INSIGHTS_DIR = DATA_DIR / "insights"
 ABC_XYZ_CSV = INSIGHTS_DIR / "abc_xyz_analysis.csv"
 TARGET_STOCK_CSV = INSIGHTS_DIR / "target_stock_plan.csv"
+TARGET_STOCK_TRACE_CSV = INSIGHTS_DIR / "target_stock_trace.csv"
 
 
 FIREBASE_KEY_PATH = Path(
