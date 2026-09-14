@@ -2,7 +2,7 @@
 
 半月分析與目標庫存規劃的規格文件。實作入口是 `python -m pos_pipeline.cli analytics`，程式碼在 `src/pos_pipeline/`。
 
-舊腳本 `inventory_forecast.py` / `abc_xyz_analysis.py` 僅供過渡對照，**不是**新管線執行依據。詳細規則演進見本文件；操作步驟見 [`使用說明.md`](使用說明.md)。
+v3 套件是目前唯一受支援的分析實作。詳細規則見本文件；操作步驟見 [`使用說明.md`](使用說明.md)，舊版規則差異見 [`補貨預測模組拆分與新流程.md`](補貨預測模組拆分與新流程.md)。
 
 ---
 
@@ -72,7 +72,7 @@ flowchart TD
 失敗政策：
 
 - 任一步驟例外 → job 回傳 `1`
-- Target Stock 先在記憶體算完全部 SKU，成功後才原子覆寫 CSV
+- Target Stock 先在記憶體算完全部 SKU；每個 CSV 均透過暫存檔個別原子覆寫
 - 模型／資料失敗時**不覆寫**上一份成功的 plan／trace
 - 不把失敗偷偷改成月均或 `0`
 
@@ -134,7 +134,7 @@ flowchart TD
 | `analysis/abc.py` / `xyz.py` / `abc_xyz.py` | 利潤 ABC、需求波動 XYZ、策略標籤 |
 | `analysis/demand.py` | New / 近三月 / Z / 季節 / FirstOrderQty |
 | `analysis/forecasting.py` | Prophet / NeuralProphet / recent_3m |
-| `analysis/target_stock.py` | 分流、安全庫存、防爆、plan+trace、原子寫檔 |
+| `analysis/target_stock.py` | 分流、安全庫存、防爆、plan+trace、個別 CSV 原子寫檔 |
 | `jobs/analytics.py` | 半月編排與錯誤回傳 |
 
 ---

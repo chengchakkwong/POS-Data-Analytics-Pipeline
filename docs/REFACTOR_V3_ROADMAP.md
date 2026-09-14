@@ -59,7 +59,7 @@
 
 - [ ] 提交離線 demo / sample_data
 - [ ] 提交 `.cursor`
-- [x] 修正 ABC／預測月份與 fallback 語意（已在 v3 analytics 完成；舊 `inventory_forecast.py` 不改）
+- [x] 修正 ABC／預測月份與 fallback 語意（已在 v3 analytics 完成）
 - [ ] 把 sales 明細上傳 Firebase
 
 ## 對應舊檔（方便對照）
@@ -70,4 +70,4 @@
 | `db_utils.py` | `database/connection.py` |
 | `POS_Sync_Tool.py` + `firebase_service.py` | `jobs/daily.py` + `delivery_to_firebase/` |
 | `abc_xyz_analysis.py` | `jobs/analytics.py` + `analysis/`（舊檔暫留，尚未刪） |
-| `inventory_forecast.py` | `analysis/target_stock.py` + `forecasting.py` + `demand.py`（舊檔暫留，不作為執行入口） |
+| `inventory_forecast.py` | 已由 `analysis/target_stock.py` + `forecasting.py` + `demand.py` 取代 |

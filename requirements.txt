@@ -1,7 +1,6 @@
 # Production runtime: POS SQL sync + ABC/XYZ analytics + Firebase sync.
 # Use requirements-demo.txt for the public offline demo.
-# Install requirements-forecast.txt only when running inventory_forecast.py.
-
+# Install requirements-forecast.txt when running the analytics pipeline with Prophet.
 -r requirements-demo.txt
 
 # SQL Server ETL

@@ -224,7 +224,7 @@ pip install -r requirements-forecast.txt
 python -m pos_pipeline.cli analytics    # ABC/XYZ + A/B/New/C target stock
 ```
 
-Legacy root scripts (`pos_system_v2.py`, `abc_xyz_analysis.py`, `inventory_forecast.py`) remain for transition only. Operational sequence: **[docs/使用說明.md](docs/使用說明.md)**. Analytics rules: **[docs/ANALYTICS_PIPELINE.md](docs/ANALYTICS_PIPELINE.md)**.
+The v3 package is the supported analytics implementation. Legacy root sync and classification scripts remain only where migration is incomplete. Operational sequence: **[docs/使用說明.md](docs/使用說明.md)**. Analytics rules: **[docs/ANALYTICS_PIPELINE.md](docs/ANALYTICS_PIPELINE.md)**.
 
 **內部使用**：優先 `pos_pipeline.cli`；完整順序見 **[docs/使用說明.md](docs/使用說明.md)**，分析規格見 **[docs/ANALYTICS_PIPELINE.md](docs/ANALYTICS_PIPELINE.md)**。
 
@@ -251,7 +251,6 @@ Legacy root scripts (`pos_system_v2.py`, `abc_xyz_analysis.py`, `inventory_forec
 | [`POS_Sync_Tool.py`](POS_Sync_Tool.py) | Legacy sync to Firestore |
 | [`pos_service.py`](pos_service.py) | Legacy SQL extract / Parquet sync |
 | [`abc_xyz_analysis.py`](abc_xyz_analysis.py) | Legacy analytics (transition) |
-| [`inventory_forecast.py`](inventory_forecast.py) | Legacy target-stock script (transition; not v3 entry) |
 | [`upload_final_inventory_plan_to_firebase.py`](upload_final_inventory_plan_to_firebase.py) | Legacy Target_Stock upload |
 | [`db_utils.py`](db_utils.py) | Legacy DB helpers |
 | [`scripts/anonymize_data.py`](scripts/anonymize_data.py) | Generate anonymized `sample_data/` from local processed data |
