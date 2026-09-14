@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -69,6 +70,7 @@ def run_abc_xyz(
     as_of: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Classify SKUs and write data/insights/abc_xyz_analysis.csv."""
+    started = time.perf_counter()
     stock_csv = stock_csv or STOCK_MASTER_CSV
     sales_dir = sales_dir or SALES_PARQUET_DIR
     output_csv = output_csv or ABC_XYZ_CSV
@@ -118,4 +120,5 @@ def run_abc_xyz(
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     abc_xyz_df.to_csv(output_csv, index=False, encoding="utf-8-sig")
+    print(f"[abc-xyz] elapsed: {time.perf_counter() - started:.1f}s")
     return abc_xyz_df

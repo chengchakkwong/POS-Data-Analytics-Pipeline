@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -487,6 +488,7 @@ def run_target_stock(
     every row succeeds, so a model/data failure leaves the previous successful
     files untouched.
     """
+    started = time.perf_counter()
     labels_csv = labels_csv or ABC_XYZ_CSV
     stock_csv = stock_csv or STOCK_MASTER_CSV
     output_csv = output_csv or TARGET_STOCK_CSV
@@ -594,4 +596,9 @@ def run_target_stock(
 
     write_csv_atomic(plan_df, output_csv)
     write_csv_atomic(trace_df, trace_csv)
+    print(
+        "[target-stock] elapsed: "
+        f"{time.perf_counter() - started:.1f}s "
+        f"(plan_rows={len(plan_df)})"
+    )
     return plan_df
