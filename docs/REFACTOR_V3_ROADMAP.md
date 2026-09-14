@@ -35,7 +35,7 @@
 ## 稍後：半月 Analytics
 
 - [x] 本機 sales → 增量 Parquet（`data/processed/sales_daily_parquet`）
-- [ ] ABC/XYZ
+- [x] ABC/XYZ（公式搬進 `analysis/abc.py` + `xyz.py`；job 先更新 stock）
 - [ ] Target Stock
 - [ ] 結果欄位上傳 Firestore
 - [ ] `python -m pos_pipeline.cli analytics`
@@ -67,4 +67,4 @@
 | `pos_system_v2.py` / `pos_service.py` | `extraction/` + `jobs/daily.py` |
 | `db_utils.py` | `database/connection.py` |
 | `POS_Sync_Tool.py` + `firebase_service.py` | `jobs/daily.py` + `delivery_to_firebase/` |
-| `abc_xyz_analysis.py` / `inventory_forecast.py` | 之後的 analytics job |
+| `abc_xyz_analysis.py` | `jobs/analytics.py` + `analysis/`（舊檔暫留，尚未刪） |

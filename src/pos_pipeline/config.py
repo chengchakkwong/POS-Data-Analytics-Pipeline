@@ -21,6 +21,9 @@ DATA_DIR = PROJECT_ROOT / "data"
 PROCESSED_DIR = DATA_DIR / "processed"
 STOCK_MASTER_CSV = PROCESSED_DIR / "DetailGoodsStockToday.csv"
 SALES_PARQUET_DIR = PROCESSED_DIR / "sales_daily_parquet"
+INSIGHTS_DIR = DATA_DIR / "insights"
+ABC_XYZ_CSV = INSIGHTS_DIR / "abc_xyz_analysis.csv"
+
 
 
 FIREBASE_KEY_PATH = Path(
