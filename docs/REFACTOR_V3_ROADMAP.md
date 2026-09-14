@@ -35,10 +35,12 @@
 ## 稍後：半月 Analytics
 
 - [x] 本機 sales → 增量 Parquet（`data/processed/sales_daily_parquet`）
-- [x] ABC/XYZ（公式搬進 `analysis/abc.py` + `xyz.py`；job 先更新 stock）
-- [ ] Target Stock（C 類規則已進 `analysis/target_stock.py` + analytics job；A/B/New 仍用 `inventory_forecast.py`）
+- [x] ABC/XYZ（公式搬進 `analysis/abc.py` + `xyz.py`；完整月份日曆語意）
+- [x] Target Stock（A/B/New/C 已進 `analysis/target_stock.py` + analytics job；含 plan + trace）
+- [x] `python -m pos_pipeline.cli analytics`
 - [ ] 結果欄位上傳 Firestore
-- [ ] `python -m pos_pipeline.cli analytics`
+
+規格：[`ANALYTICS_PIPELINE.md`](ANALYTICS_PIPELINE.md)
 
 ## 再之後：Docker / 排程
 
@@ -57,7 +59,7 @@
 
 - [ ] 提交離線 demo / sample_data
 - [ ] 提交 `.cursor`
-- [ ] 改 ABC／預測公式（先行為對齊舊版）
+- [x] 修正 ABC／預測月份與 fallback 語意（已在 v3 analytics 完成；舊 `inventory_forecast.py` 不改）
 - [ ] 把 sales 明細上傳 Firebase
 
 ## 對應舊檔（方便對照）
@@ -68,3 +70,4 @@
 | `db_utils.py` | `database/connection.py` |
 | `POS_Sync_Tool.py` + `firebase_service.py` | `jobs/daily.py` + `delivery_to_firebase/` |
 | `abc_xyz_analysis.py` | `jobs/analytics.py` + `analysis/`（舊檔暫留，尚未刪） |
+| `inventory_forecast.py` | `analysis/target_stock.py` + `forecasting.py` + `demand.py`（舊檔暫留，不作為執行入口） |

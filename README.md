@@ -31,13 +31,13 @@ End-to-end Python pipeline that turns POS SQL data into decision-ready analytics
 - **Data cleansing**: Normalize newline/whitespace issues in POS source fields.
 - **AdjustedCost logic**: Estimate conservative cost for misc items to stabilize margin analytics.
 - **ABC / XYZ classification**: Rank products by profit contribution and demand variability; attach strategy labels.
-- **Hybrid target-stock planning**: The optional target-stock module uses time-series forecasting for data-sufficient AX/AY/BX/BY SKUs (at least 12 months of monthly sales), preferring NeuralProphet when installed and otherwise using Prophet. Other products use interpretable run-rate, recent-sales, seasonal, and ordering rules. The web app calculates manager-reviewed suggested orders from `Target_Stock`, on-hand inventory, and order constraints.
+- **Hybrid target-stock planning**: The v3 analytics module forecasts next-month demand for data-sufficient AX/AY/BX/BY SKUs with Prophet by default (NeuralProphet remains an optional experimental backend). Other products use interpretable run-rate, recent complete-month averages, Z-class defensive rules, and C-class ordering heuristics. The web app calculates manager-reviewed suggested orders from `Target_Stock`, on-hand inventory, and order constraints.
 
 - **增量 ETL**：使用分區 Parquet 快取，並只更新受影響的月份分區。
 - **資料清洗**：修正 POS 來源欄位常見的換行／空白問題。
 - **成本校正邏輯**：對雜項估算保守成本以穩定毛利分析。
 - **ABC / XYZ 分級**：依利潤貢獻與需求波動分類，並產出策略標籤。
-- **混合式目標庫存規劃**：選用的目標庫存模組會對具足夠資料的 AX／AY／BX／BY SKU（至少 12 個月月度銷售）使用時間序列預測；已安裝 NeuralProphet 時優先採用，否則使用 Prophet。其他商品則採可解釋的 run-rate、近期銷售、季節性及訂貨規則。Web App 再依 `Target_Stock`、現有庫存及起訂／倍數規則計算供管理者覆核的建議訂購量。
+- **混合式目標庫存規劃**：v3 analytics 對資料足夠的 AX／AY／BX／BY 預設使用 Prophet（NeuralProphet 僅作實驗後端）。其他商品採可解釋的 run-rate、完整近月平均、Z 類防禦規則與 C 類訂貨規則。Web App 再依 `Target_Stock`、現有庫存及起訂／倍數規則計算供管理者覆核的建議訂購量。
 
 ## Impact / 影響
 
@@ -88,15 +88,16 @@ Full methodology: [`docs/PILOT_EVALUATION.md`](docs/PILOT_EVALUATION.md)
 ```mermaid
 flowchart LR
   PosDB["POS SQL Server"]
-  Extract["Incremental Extract (pyodbc, SQLAlchemy)"]
-  Clean["Cleaning & Normalization"]
-  Cache["Parquet Cache (PyArrow)"]
-  Metrics["ABC / XYZ / Inventory Metrics"]
-  Outputs["Analytics CSV outputs"]
-  PosDB --> Extract --> Clean --> Cache --> Metrics --> Outputs
+  Extract["Incremental Extract"]
+  Cache["Parquet Cache"]
+  Labels["ABC / XYZ Labels"]
+  Plan["Target Stock Plan + Trace"]
+  PosDB --> Extract --> Cache --> Labels --> Plan
 ```
 
-**Current outputs / 目前產出**：structured CSV files under `data/insights/` (production) or `demo_output/` (offline demo).  
+v3 analytics detail (complete-month calendar, model gates, failure policy): [`docs/ANALYTICS_PIPELINE.md`](docs/ANALYTICS_PIPELINE.md)
+
+**Current outputs / 目前產出**：`data/insights/abc_xyz_analysis.csv`, `target_stock_plan.csv`, `target_stock_trace.csv` (production) or `demo_output/` (offline ABC/XYZ demo).  
 
 ## Result Delivery / 成果落地
 
@@ -211,24 +212,21 @@ See [`sample_data/README.md`](sample_data/README.md) for anonymization rules and
 
 ## Production Pipeline (SQL Server) / 正式管道（需 SQL Server）
 
-For internal / production use with a live POS database:
+Recommended v3 path:
 
 ```bash
 pip install -r requirements.txt
+pip install -e .
 # Create .env with DB credentials (see Configuration below)
-python pos_system_v2.py      # Extract + cache to data/processed/
-python POS_Sync_Tool.py      # Sync products, replenishment base fields, and inbound records to Firestore
-python abc_xyz_analysis.py   # ABC-XYZ metrics -> data/insights/ and classification fields -> Firestore
 
-# Optional target-stock forecast:
+python -m pos_pipeline.cli daily        # Stock + Firestore sync
 pip install -r requirements-forecast.txt
-python inventory_forecast.py                 # Target-stock plan -> data/insights/
-python upload_final_inventory_plan_to_firebase.py  # Target_Stock -> Firestore replenishment
+python -m pos_pipeline.cli analytics    # ABC/XYZ + A/B/New/C target stock
 ```
 
-`pos_system_v2.py`, `POS_Sync_Tool.py`, and the optional forecast upload are separate operational steps; see **[docs/使用說明.md](docs/使用說明.md)** for the required sequence and scheduling guidance.
+Legacy root scripts (`pos_system_v2.py`, `abc_xyz_analysis.py`, `inventory_forecast.py`) remain for transition only. Operational sequence: **[docs/使用說明.md](docs/使用說明.md)**. Analytics rules: **[docs/ANALYTICS_PIPELINE.md](docs/ANALYTICS_PIPELINE.md)**.
 
-**內部使用**：`pos_system_v2.py`、`POS_Sync_Tool.py` 與選用的預測上傳為獨立操作步驟；完整順序及排程建議請見 **[docs/使用說明.md](docs/使用說明.md)**。
+**內部使用**：優先 `pos_pipeline.cli`；完整順序見 **[docs/使用說明.md](docs/使用說明.md)**，分析規格見 **[docs/ANALYTICS_PIPELINE.md](docs/ANALYTICS_PIPELINE.md)**。
 
 ## Tech Stack / 技術棧
 
@@ -237,7 +235,7 @@ python upload_final_inventory_plan_to_firebase.py  # Target_Stock -> Firestore r
 - **Database**: SQLAlchemy, SQL Server (pyodbc)
 - **Delivery**: Decision-ready CSV analytics and incremental Firestore document sync
 - **Scheduled sync (v3)**: Cloud Build → Artifact Registry → Cloud Run Job + Cloud Scheduler（細節見 [`docs/CLOUD_RUN_DAILY.md`](docs/CLOUD_RUN_DAILY.md)）
-- **Forecasting** *(optional)*: Prophet, joblib, tqdm; NeuralProphet can be added manually
+- **Forecasting** *(optional)*: Prophet via `requirements-forecast.txt`; NeuralProphet experimental via `requirements-neuralprophet.txt`
 - **Env**: python-dotenv, venv / pip
 
 ## Project Structure / 檔案結構
@@ -245,22 +243,24 @@ python upload_final_inventory_plan_to_firebase.py  # Target_Stock -> Firestore r
 | Path | Role |
 |------|------|
 | [`demo_pipeline.py`](demo_pipeline.py) | Offline demo entry — reads `sample_data/`, writes `demo_output/` |
-| [`src/pos_pipeline/`](src/pos_pipeline/) | v3 package — `cli daily` extracts stock and syncs Firestore |
+| [`src/pos_pipeline/`](src/pos_pipeline/) | v3 package — `cli daily` / `cli analytics` |
+| [`docs/ANALYTICS_PIPELINE.md`](docs/ANALYTICS_PIPELINE.md) | v3 analytics data flow, rules, and column contract |
 | [`Dockerfile.daily`](Dockerfile.daily) | Image for the scheduled daily job |
 | [`docs/CLOUD_RUN_DAILY.md`](docs/CLOUD_RUN_DAILY.md) | Cloud Run / Scheduler runbook |
-| [`pos_system_v2.py`](pos_system_v2.py) | Production orchestrator — sync pipeline |
-| [`POS_Sync_Tool.py`](POS_Sync_Tool.py) | Sync product, replenishment-base, and inbound records to Firestore |
-| [`pos_service.py`](pos_service.py) | SQL Server extract, cleansing, incremental Parquet sync |
-| [`abc_xyz_analysis.py`](abc_xyz_analysis.py) | Core analytics — ABC/XYZ, AdjustedCost, strategy labels |
-| [`inventory_forecast.py`](inventory_forecast.py) | Target stock planning (optional forecast module) |
-| [`upload_final_inventory_plan_to_firebase.py`](upload_final_inventory_plan_to_firebase.py) | Write optional target-stock plans to Firestore |
-| [`db_utils.py`](db_utils.py) | DB connection and environment handling |
+| [`pos_system_v2.py`](pos_system_v2.py) | Legacy production orchestrator — sync pipeline |
+| [`POS_Sync_Tool.py`](POS_Sync_Tool.py) | Legacy sync to Firestore |
+| [`pos_service.py`](pos_service.py) | Legacy SQL extract / Parquet sync |
+| [`abc_xyz_analysis.py`](abc_xyz_analysis.py) | Legacy analytics (transition) |
+| [`inventory_forecast.py`](inventory_forecast.py) | Legacy target-stock script (transition; not v3 entry) |
+| [`upload_final_inventory_plan_to_firebase.py`](upload_final_inventory_plan_to_firebase.py) | Legacy Target_Stock upload |
+| [`db_utils.py`](db_utils.py) | Legacy DB helpers |
 | [`scripts/anonymize_data.py`](scripts/anonymize_data.py) | Generate anonymized `sample_data/` from local processed data |
 | [`sample_data/`](sample_data/) | Committed anonymized demo dataset |
 | [`requirements-base.txt`](requirements-base.txt) | Shared pinned Pandas / NumPy / PyArrow stack |
 | [`requirements-demo.txt`](requirements-demo.txt) | Offline demo dependencies |
 | [`requirements.txt`](requirements.txt) | Production runtime dependencies |
-| [`requirements-forecast.txt`](requirements-forecast.txt) | Optional target-stock forecast dependencies |
+| [`requirements-forecast.txt`](requirements-forecast.txt) | Official Prophet forecast dependencies |
+| [`requirements-neuralprophet.txt`](requirements-neuralprophet.txt) | Experimental NeuralProphet stack |
 
 ## Configuration / 設定
 
