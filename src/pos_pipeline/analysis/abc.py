@@ -114,7 +114,14 @@ def analyze_profit_abc(
     )
 
     merged_df["TotalCost"] = merged_df["AdjustedCost"] * merged_df["TotalQty"]
-    merged_df["TotalProfit"] = merged_df["TotalAmt"] - merged_df["TotalCost"]
+    calculated_profit = merged_df["TotalAmt"] - merged_df["TotalCost"]
+    # A non-positive net quantity cannot represent positive sell-through profit.
+    # This also prevents a negative cost total from inflating ABC profitability.
+    merged_df["TotalProfit"] = np.where(
+        merged_df["TotalQty"] <= 0,
+        0.0,
+        calculated_profit,
+    )
     # 近窗利潤 ÷ 有效月份：老品最多除以分析窗長，避免被全歷史年資壓低
     profit_months = merged_df["Month_Age"].clip(upper=abc_window_months)
     merged_df["Monthly_Avg_Profit"] = merged_df["TotalProfit"] / profit_months

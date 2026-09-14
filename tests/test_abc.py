@@ -99,6 +99,41 @@ class AnalyzeProfitAbcTests(TestCase):
         self.assertEqual(result.loc[2, "ABC_Class"], "B")
         self.assertAlmostEqual(result.loc[1, "ProfitCumulativeRatio"], 0.75)
 
+    def test_nonpositive_total_qty_cannot_create_positive_profit(self) -> None:
+        stock = pd.DataFrame(
+            [
+                _stock_row(1, name="Negative", product_code="P001"),
+                _stock_row(2, name="Zero", product_code="P002"),
+            ]
+        )
+        sales = pd.DataFrame(
+            [
+                {
+                    "GoodsID": 1,
+                    "rDate": "2026-01-01",
+                    "TotalQty": -19,
+                    "TotalAmt": 160,
+                },
+                {
+                    "GoodsID": 2,
+                    "rDate": "2026-01-01",
+                    "TotalQty": 0,
+                    "TotalAmt": 100,
+                },
+            ]
+        )
+
+        result = analyze_profit_abc(
+            stock,
+            sales,
+            month_age_map={1: 12, 2: 12},
+        ).set_index("GoodsID")
+
+        for goods_id in (1, 2):
+            self.assertEqual(result.loc[goods_id, "TotalProfit"], 0)
+            self.assertEqual(result.loc[goods_id, "Monthly_Avg_Profit"], 0)
+            self.assertEqual(result.loc[goods_id, "ABC_Class"], "C")
+
     def test_abc_window_months_must_be_positive(self) -> None:
         stock = pd.DataFrame([_stock_row(1)])
         sales = pd.DataFrame(
