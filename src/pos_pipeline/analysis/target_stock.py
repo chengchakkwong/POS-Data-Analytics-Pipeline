@@ -531,6 +531,10 @@ def run_target_stock(
         sales_df["rDate"] = pd.to_datetime(sales_df["rDate"], errors="raise")
         if as_of is not None:
             sales_df = sales_df[sales_df["rDate"] <= pd.Timestamp(as_of)].copy()
+        elif not sales_df.empty:
+            # New run-rate denominator uses the shared last sync day, not each
+            # SKU's own last sale date (which overstates dormant new items).
+            as_of = sales_df["rDate"].max()
 
     if focus_skus.empty:
         cutoff_month = pd.Timestamp("1970-01-01")

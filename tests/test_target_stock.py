@@ -357,6 +357,62 @@ class RunTargetStockTests(TestCase):
             self.assertEqual(output_csv.read_text(encoding="utf-8"), "old_plan\n")
             self.assertEqual(trace_csv.read_text(encoding="utf-8"), "old_trace\n")
 
+    def test_new_run_rate_uses_global_sales_max_as_as_of(self) -> None:
+        """Without as_of, New active days end at the shared sales sync date."""
+        labels = pd.DataFrame(
+            [
+                {
+                    "GoodsID": 1,
+                    "ABC_Class": "New",
+                    "XYZ_Class": "New",
+                    "CV": float("nan"),
+                    "Mean_Monthly_Qty": 0,
+                    "Strategy": "新品觀察 (手動控貨)",
+                }
+            ]
+        )
+        stock = pd.DataFrame(
+            [
+                {
+                    "GoodsID": 1,
+                    "ProductCode": "N001",
+                    "Name": "New SKU",
+                    "CurrStock": 1,
+                    "Note": "",
+                    "Category": "Cups",
+                }
+            ]
+        )
+        # New SKU last sold on Jan 11; another SKU keeps the cache alive until Jan 21.
+        # Active days = 20 → (30/20)*30 = 45, not (30/10)*30 = 90.
+        sales = pd.DataFrame(
+            [
+                {"GoodsID": 1, "rDate": "2026-01-01", "TotalQty": 10},
+                {"GoodsID": 1, "rDate": "2026-01-11", "TotalQty": 20},
+                {"GoodsID": 99, "rDate": "2026-01-21", "TotalQty": 1},
+            ]
+        )
+
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            labels_csv = tmp_path / "abc_xyz.csv"
+            stock_csv = tmp_path / "stock.csv"
+            output_csv = tmp_path / "target_stock.csv"
+            trace_csv = tmp_path / "target_stock_trace.csv"
+            labels.to_csv(labels_csv, index=False)
+            stock.to_csv(stock_csv, index=False)
+
+            result = run_target_stock(
+                labels_csv=labels_csv,
+                stock_csv=stock_csv,
+                output_csv=output_csv,
+                trace_csv=trace_csv,
+                sales_df=sales,
+            )
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result.iloc[0]["Base_Demand"], 45)
+
     def test_normalizes_goods_id_float_strings_for_join(self) -> None:
         labels = pd.DataFrame(
             [
