@@ -6,32 +6,66 @@ from pathlib import Path
 
 import pandas as pd
 
+from pos_pipeline.analysis.demand import (
+    base_demand_for_new,
+    base_demand_for_recent_mean,
+    base_demand_for_z,
+    calculate_category_seasonal_indices,
+    calculate_category_seasonal_profile,
+    new_seasonal_factor,
+    parse_first_order_qty,
+)
 from pos_pipeline.config import ABC_XYZ_CSV, STOCK_MASTER_CSV, TARGET_STOCK_CSV
+
+# Re-export demand helpers so existing imports keep working during the refactor.
+__all__ = [
+    "base_demand_for_new",
+    "base_demand_for_recent_mean",
+    "base_demand_for_z",
+    "calculate_category_seasonal_indices",
+    "calculate_category_seasonal_profile",
+    "new_seasonal_factor",
+    "parse_first_order_qty",
+    "plan_c_class_row",
+    "run_target_stock",
+]
 
 
 def plan_c_class_row(row: pd.Series) -> dict:
-    """C 類長尾：用月均量與 FirstOrderQty 算目標庫存（對齊舊腳本）。"""
+    """C 類長尾：用月均量與 FirstOrderQty 算目標庫存。"""
     mean_qty = row.get("Mean_Monthly_Qty", 0)
     if pd.isna(mean_qty):
         mean_qty = 0
     curr_stock = row.get("CurrStock", 0)
-    first_order_qty = row.get("FirstOrderQty", 0)
-    if pd.isna(first_order_qty):
-        first_order_qty = 0
+
+    first_order_qty = row.get("FirstOrderQty")
+    parse_status = row.get("FirstOrderQty_Parse_Status")
     note = row.get("Note", "")
     if pd.isna(note):
         note = ""
 
+    if pd.isna(first_order_qty) and "FirstOrderQty_Parse_Status" not in row.index:
+        first_order_qty, parse_status = parse_first_order_qty(note)
+    elif pd.isna(first_order_qty):
+        first_order_qty = None
+        parse_status = parse_status or "no_number"
+    else:
+        parse_status = parse_status or "single_number"
+
+    decision_source = "mean_times_1_2"
     if mean_qty <= 0:
         target_stock = 0
-    else:
-        if pd.notna(first_order_qty) and first_order_qty > 0:
-            if first_order_qty > (mean_qty * 12):
-                target_stock = mean_qty * 1.2
-            else:
-                target_stock = first_order_qty
-        else:
+        decision_source = "zero_mean"
+    elif first_order_qty is not None and first_order_qty > 0:
+        if first_order_qty > (mean_qty * 12):
             target_stock = mean_qty * 1.2
+            decision_source = "first_order_oversized"
+        else:
+            target_stock = first_order_qty
+            decision_source = "first_order_qty"
+    else:
+        target_stock = mean_qty * 1.2
+        decision_source = "mean_times_1_2"
 
     return {
         "ProductCode": row.get("ProductCode", "Unknown"),
@@ -39,7 +73,9 @@ def plan_c_class_row(row: pd.Series) -> dict:
         "ABC_XYZ": f"C{row['XYZ_Class']}",
         "Strategy": row.get("Strategy", "Unknown"),
         "CurrStock": curr_stock,
-        "FirstOrderQty": first_order_qty,
+        "FirstOrderQty": first_order_qty if first_order_qty is not None else 0,
+        "FirstOrderQty_Parse_Status": parse_status,
+        "Decision_Source": decision_source,
         "Note": note,
         "Base_Demand": round(mean_qty, 2),
         "Final_Demand": round(mean_qty, 2),
@@ -62,13 +98,20 @@ def run_target_stock(
 
     if "FirstOrderQty" not in df_stock.columns:
         if "Note" in df_stock.columns:
-            notes = df_stock["Note"].astype(str).replace("nan", "")
-            df_stock["FirstOrderQty"] = pd.to_numeric(
-                notes.str.extract(r"(?:^|\s)(\d+)(?:\s|$)", expand=False),
-                errors="coerce",
-            )
+            parsed = df_stock["Note"].map(parse_first_order_qty)
+            df_stock["FirstOrderQty"] = [qty for qty, _status in parsed]
+            df_stock["FirstOrderQty_Parse_Status"] = [
+                status for _qty, status in parsed
+            ]
         else:
-            df_stock["FirstOrderQty"] = 0
+            df_stock["FirstOrderQty"] = None
+            df_stock["FirstOrderQty_Parse_Status"] = "no_number"
+    elif "FirstOrderQty_Parse_Status" not in df_stock.columns:
+        df_stock["FirstOrderQty_Parse_Status"] = df_stock["FirstOrderQty"].map(
+            lambda value: "single_number"
+            if pd.notna(value) and float(value) > 0
+            else "no_number"
+        )
 
     analysis_df = pd.merge(
         df_labels[
