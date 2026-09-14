@@ -39,13 +39,13 @@ def attach_xyz_and_strategy(
         combo = f"{row['ABC_Class']}{row['XYZ_Class']}"
         strategy_map = {
             "AX": "自動補貨 (高頻穩定)",
-            "AY": "AI 季節性預測 (重點對象)",
+            "AY": "AI 趨勢／波動預測 (重點對象)",
             "AZ": "高安全庫存 (利潤高但難抓)",
             "BX": "定期補貨",
-            "BY": "季節性補貨",
+            "BY": "中度波動補貨",
             "BZ": "觀望/依訂單進貨",
             "CX": "基本品 (低庫存管理)",
-            "CY": "季節品 (減少庫存)",
+            "CY": "中度波動長尾 (減少庫存)",
             "CZ": "不建議預測 (考慮汰換)",
         }
         return strategy_map.get(combo, "其他")

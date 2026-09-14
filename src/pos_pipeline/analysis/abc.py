@@ -5,18 +5,28 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+# sales_df is expected to cover this many complete calendar months.
+ABC_WINDOW_MONTHS = 12
+
 
 def analyze_profit_abc(
     stock_df: pd.DataFrame,
     sales_df: pd.DataFrame,
     conservative_cost_ratio: float = 0.80,
     month_age_map: dict | None = None,
+    abc_window_months: int = ABC_WINDOW_MONTHS,
 ) -> pd.DataFrame:
     """依傳入的 sales 期間做利潤 ABC。
 
     month_age_map 若有提供，年資用全歷史首賣日，避免只看近 12 個月
     而把舊品判成新品。未提供時，年資改由這份 sales_df 自己算。
+
+    Monthly_Avg_Profit 分母使用 ``min(Month_Age, abc_window_months)``，
+    避免近窗利潤被整段商品年資不合理地壓低。
     """
+    if abc_window_months <= 0:
+        raise ValueError("abc_window_months must be greater than zero")
+
     sales_df["rDate"] = pd.to_datetime(sales_df["rDate"])
 
     sales_summary = sales_df.groupby("GoodsID").agg(
@@ -105,8 +115,9 @@ def analyze_profit_abc(
 
     merged_df["TotalCost"] = merged_df["AdjustedCost"] * merged_df["TotalQty"]
     merged_df["TotalProfit"] = merged_df["TotalAmt"] - merged_df["TotalCost"]
-    # 時間公平：避免只因賣得久而變成 A
-    merged_df["Monthly_Avg_Profit"] = merged_df["TotalProfit"] / merged_df["Month_Age"]
+    # 近窗利潤 ÷ 有效月份：老品最多除以分析窗長，避免被全歷史年資壓低
+    profit_months = merged_df["Month_Age"].clip(upper=abc_window_months)
+    merged_df["Monthly_Avg_Profit"] = merged_df["TotalProfit"] / profit_months
 
     is_calc = merged_df["Is_Generic"] == "No"
     df_calc = merged_df[is_calc].copy()
@@ -128,17 +139,21 @@ def analyze_profit_abc(
         mature_df["ProfitCumulativeRatio"] = (
             mature_df["CumulativeProfit"] / total_prof_mature
         )
+        # 跨越門檻的 SKU 仍歸入較高分級：看「加入前」的累積比重
+        previous_ratio = (
+            mature_df["CumulativeProfit"].shift(1).fillna(0.0) / total_prof_mature
+        )
+        mature_df["ABC_Class"] = np.select(
+            [
+                previous_ratio < 0.7,
+                previous_ratio < 0.9,
+            ],
+            ["A", "B"],
+            default="C",
+        )
     else:
         mature_df["ProfitCumulativeRatio"] = 1.0
-
-    mature_df["ABC_Class"] = np.select(
-        [
-            (mature_df["ProfitCumulativeRatio"] <= 0.7),
-            (mature_df["ProfitCumulativeRatio"] <= 0.9),
-        ],
-        ["A", "B"],
-        default="C",
-    )
+        mature_df["ABC_Class"] = "C"
 
     df_calc.loc[mature_df.index, "ProfitCumulativeRatio"] = mature_df[
         "ProfitCumulativeRatio"
