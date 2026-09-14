@@ -1,7 +1,8 @@
 """Biweekly ABC/XYZ + target-stock job."""
 
 from pos_pipeline.analysis.abc_xyz import run_abc_xyz
-from pos_pipeline.config import ABC_XYZ_CSV, PROJECT_ROOT, SALES_PARQUET_DIR
+from pos_pipeline.analysis.target_stock import run_target_stock
+from pos_pipeline.config import ABC_XYZ_CSV, PROJECT_ROOT, SALES_PARQUET_DIR, TARGET_STOCK_CSV
 from pos_pipeline.database.connection import check_connection
 from pos_pipeline.storage.sales_cache import sync_daily_sales_parquet
 from pos_pipeline.extraction.stock import fetch_stock_master, save_stock_master
@@ -31,4 +32,7 @@ def run() -> int:
     abc_xyz_df = run_abc_xyz()
     print(f"[job:analytics] ABC/XYZ SKUs: {len(abc_xyz_df)}")
     print(f"[job:analytics] wrote: {ABC_XYZ_CSV}")
+    target_stock_df = run_target_stock()
+    print(f"[job:analytics] target-stock SKUs: {len(target_stock_df)}")
+    print(f"[job:analytics] wrote: {TARGET_STOCK_CSV}")
     return 0

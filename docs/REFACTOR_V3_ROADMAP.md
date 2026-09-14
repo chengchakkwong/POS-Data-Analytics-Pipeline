@@ -36,7 +36,7 @@
 
 - [x] 本機 sales → 增量 Parquet（`data/processed/sales_daily_parquet`）
 - [x] ABC/XYZ（公式搬進 `analysis/abc.py` + `xyz.py`；job 先更新 stock）
-- [ ] Target Stock
+- [ ] Target Stock（C 類規則已進 `analysis/target_stock.py` + analytics job；A/B/New 仍用 `inventory_forecast.py`）
 - [ ] 結果欄位上傳 Firestore
 - [ ] `python -m pos_pipeline.cli analytics`
 
