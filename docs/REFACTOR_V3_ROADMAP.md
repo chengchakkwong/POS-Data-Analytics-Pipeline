@@ -39,6 +39,7 @@
 - [x] Target Stock（A/B/New/C 已進 `analysis/target_stock.py` + analytics job；含 plan + trace）
 - [x] `python -m pos_pipeline.cli analytics`
 - [x] 結果欄位上傳 Firestore（`ABC_Class` / `XYZ_Class` / `note` / `Target_Stock`）
+- [x] `python -m pos_pipeline.cli min-multiple`（guessed_min / guessed_multiple；獨立 job，不綁 daily／analytics）
 
 規格：[`ANALYTICS_PIPELINE.md`](ANALYTICS_PIPELINE.md)
 
@@ -69,5 +70,6 @@
 | `pos_system_v2.py` / `pos_service.py` | `extraction/` + `jobs/daily.py` |
 | `db_utils.py` | `database/connection.py` |
 | `POS_Sync_Tool.py` + `firebase_service.py` | `jobs/daily.py` + `delivery_to_firebase/` |
-| `abc_xyz_analysis.py` | `jobs/analytics.py` + `analysis/`（舊檔暫留，尚未刪） |
+| `abc_xyz_analysis.py` | `jobs/analytics.py` + `analysis/`（舊檔已刪） |
 | `inventory_forecast.py` | 已由 `analysis/target_stock.py` + `forecasting.py` + `demand.py` 取代 |
+| `update_min_multiple.py` | `jobs/min_multiple.py` + `analysis/min_multiple.py` + `delivery_to_firebase/min_multiple.py`（舊檔暫留、已標棄用） |

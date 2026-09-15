@@ -1,6 +1,10 @@
 """
-【獨立腳本】從入貨紀錄計算 guessed_min / guessed_multiple，並上傳至 Firestore replenishment。
-可單獨排程執行，不需與 POS_Sync_Tool 同跑。
+【獨立腳本｜已棄用入口】請改用：
+
+    python -m pos_pipeline.cli min-multiple
+
+從入貨紀錄計算 guessed_min / guessed_multiple，並上傳至 Firestore replenishment。
+可單獨排程執行，不需與 daily sync 同跑。
 """
 import time
 import logging
@@ -15,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 def main(years=2):
     start_all = time.perf_counter()
+    logger.warning(
+        "update_min_multiple.py is deprecated; "
+        "use: python -m pos_pipeline.cli min-multiple"
+    )
 
     try:
         logger.info("初始化資料庫連接...")
