@@ -247,12 +247,10 @@ The v3 package is the supported analytics implementation. Legacy root sync and c
 | [`docs/ANALYTICS_PIPELINE.md`](docs/ANALYTICS_PIPELINE.md) | v3 analytics data flow, rules, and column contract |
 | [`Dockerfile.daily`](Dockerfile.daily) | Image for the scheduled daily job |
 | [`docs/CLOUD_RUN_DAILY.md`](docs/CLOUD_RUN_DAILY.md) | Cloud Run / Scheduler runbook |
-| [`pos_system_v2.py`](pos_system_v2.py) | Legacy production orchestrator — sync pipeline |
-| [`POS_Sync_Tool.py`](POS_Sync_Tool.py) | Legacy sync to Firestore |
-| [`pos_service.py`](pos_service.py) | Legacy SQL extract / Parquet sync |
-| [`abc_xyz_analysis.py`](abc_xyz_analysis.py) | Legacy analytics (transition) |
-| [`upload_final_inventory_plan_to_firebase.py`](upload_final_inventory_plan_to_firebase.py) | Legacy Target_Stock upload |
+| [`pos_service.py`](pos_service.py) | Legacy SQL extract (still used by min-multiple) |
 | [`db_utils.py`](db_utils.py) | Legacy DB helpers |
+| [`deprecated/`](deprecated/) | Superseded scripts (old sync/upload, PyInstaller spec) |
+| [`experiments/`](experiments/) | Non-production feature / weather experiments |
 | [`scripts/anonymize_data.py`](scripts/anonymize_data.py) | Generate anonymized `sample_data/` from local processed data |
 | [`sample_data/`](sample_data/) | Committed anonymized demo dataset |
 | [`requirements-base.txt`](requirements-base.txt) | Shared pinned Pandas / NumPy / PyArrow stack |
