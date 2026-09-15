@@ -14,7 +14,7 @@ v3 套件是目前唯一受支援的分析實作。詳細規則見本文件；�
   - `data/insights/abc_xyz_analysis.csv`
   - `data/insights/target_stock_plan.csv`（下游精簡欄位）
   - `data/insights/target_stock_trace.csv`（計算追蹤）
-- Sales 原始明細不上雲；目前 analytics **尚未**上傳 Firestore（daily job 另責）
+- Sales 原始明細不上雲；analytics 會把結果欄位 merge 上傳 Firestore（`ABC_Class` / `XYZ_Class` / `note` / `Target_Stock`）
 
 ---
 
@@ -28,6 +28,7 @@ flowchart LR
   Labels["abc_xyz_analysis.csv"]
   Plan["target_stock_plan.csv"]
   Trace["target_stock_trace.csv"]
+  FS["Firestore products / replenishment"]
 
   PosDB -->|fetch_stock_master| Stock
   PosDB -->|sync_daily_sales_parquet| Sales
@@ -37,6 +38,8 @@ flowchart LR
   Stock --> Plan
   Sales --> Plan
   Plan -.-> Trace
+  Labels -->|ABC_Class XYZ_Class note| FS
+  Plan -->|Target_Stock| FS
 ```
 
 資料語意重點：
@@ -58,6 +61,7 @@ flowchart TD
   Cache["sync_daily_sales_parquet"]
   ABCXYZ["run_abc_xyz"]
   Target["run_target_stock"]
+  Upload["upload_analytics_results"]
 
   CLI --> Job
   Job --> DB
@@ -67,6 +71,8 @@ flowchart TD
   Job --> Target
   Target --> PlanOut["TARGET_STOCK_CSV"]
   Target --> TraceOut["TARGET_STOCK_TRACE_CSV"]
+  Job --> Upload
+  Upload --> FS["Firestore products + replenishment"]
 ```
 
 失敗政策：
@@ -74,6 +80,7 @@ flowchart TD
 - 任一步驟例外 → job 回傳 `1`
 - Target Stock 先在記憶體算完全部 SKU；每個 CSV 均透過暫存檔個別原子覆寫
 - 模型／資料失敗時**不覆寫**上一份成功的 plan／trace
+- Firestore 上傳失敗時，本機 CSV 已寫入仍保留；job 回傳 `1`
 - 不把失敗偷偷改成月均或 `0`
 
 環境變數：
@@ -135,7 +142,8 @@ flowchart TD
 | `analysis/demand.py` | New / 近三月 / Z / 季節 / FirstOrderQty |
 | `analysis/forecasting.py` | Prophet / NeuralProphet / recent_3m |
 | `analysis/target_stock.py` | 分流、安全庫存、防爆、plan+trace、個別 CSV 原子寫檔 |
-| `jobs/analytics.py` | 半月編排與錯誤回傳 |
+| `delivery_to_firebase/analytics_results.py` | 結果欄位 merge 上傳（分類 + Target_Stock） |
+| `jobs/analytics.py` | 半月編排、上傳與錯誤回傳 |
 
 ---
 
@@ -150,6 +158,15 @@ flowchart TD
 另含：`GoodsID`, `Calendar_Start/End`, `Complete_Months`, `Nonzero_Months`, `Forecast_Method`, `Forecast_Status`, `Decision_Source`, `CV`, `CV_Status`, `Seasonal_Factor`, `Safety_Ratio`, `Target_Before_Cap`, `Target_Cap`, `Cap_Applied`, `FirstOrderQty_Parse_Status`
 
 讀表時：若 C 類 `Base/Final=10` 但 `Target=24`，代表決策來源是 FirstOrderQty，不是預測算錯。
+
+### Firestore 結果欄位（merge）
+
+| 欄位 | Collection | 說明 |
+|------|------------|------|
+| `ABC_Class`, `XYZ_Class`, `note` | `products` + `replenishment` | 與舊 `upload_classification_df` 對齊；`note` 來自 POS `Note` |
+| `Target_Stock` | `replenishment` | 四捨五入為整數；不覆寫其他補貨欄位 |
+
+增量指紋存在 `sync_state/classification` 與 `sync_state/target_stock`。
 
 ---
 
@@ -185,7 +202,6 @@ python -m unittest discover -s tests -v
 - 無法分辨「沒人買」與「缺貨導致沒賣出」
 - Note 單數字政策可能把年份誤當首單量
 - 尚未宣稱 Prophet／NeuralProphet 準確度；需 walk-forward 回測後才能比較
-- Analytics 結果尚未寫入 Firestore
 - 雲端 Analytics Job／Cloud Storage Parquet 僅規劃中，見路線圖
 
 ---

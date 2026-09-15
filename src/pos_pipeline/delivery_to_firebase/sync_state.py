@@ -12,7 +12,7 @@ SYNC_STATE_COLLECTION = "sync_state"
 
 def content_hash(item: dict[str, Any], *, ignore_keys: set[str] | None = None) -> str:
     """Stable MD5 over sorted fields; ignore volatile keys like AvgCost by default."""
-    ignored = ignore_keys or {"AvgCost"}
+    ignored = {"AvgCost"} if ignore_keys is None else ignore_keys
     parts = [
         f"{key}={item.get(key)}"
         for key in sorted(item.keys())

@@ -38,7 +38,7 @@
 - [x] ABC/XYZ（公式搬進 `analysis/abc.py` + `xyz.py`；完整月份日曆語意）
 - [x] Target Stock（A/B/New/C 已進 `analysis/target_stock.py` + analytics job；含 plan + trace）
 - [x] `python -m pos_pipeline.cli analytics`
-- [ ] 結果欄位上傳 Firestore
+- [x] 結果欄位上傳 Firestore（`ABC_Class` / `XYZ_Class` / `note` / `Target_Stock`）
 
 規格：[`ANALYTICS_PIPELINE.md`](ANALYTICS_PIPELINE.md)
 

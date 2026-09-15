@@ -31,8 +31,13 @@ class AnalyticsJobTests(TestCase):
     @patch("pos_pipeline.jobs.analytics.sync_daily_sales_parquet")
     @patch("pos_pipeline.jobs.analytics.run_abc_xyz")
     @patch("pos_pipeline.jobs.analytics.run_target_stock")
+    @patch(
+        "pos_pipeline.jobs.analytics.upload_analytics_results",
+        return_value=(1, 1),
+    )
     def test_happy_path_passes_sales_dir_and_backend(
         self,
+        mock_upload,
         mock_target_stock,
         mock_abc_xyz,
         mock_sync_sales,
@@ -40,11 +45,13 @@ class AnalyticsJobTests(TestCase):
         mock_fetch_stock,
         _mock_check,
     ) -> None:
+        labels = pd.DataFrame([{"GoodsID": 1, "ProductCode": "A001"}])
+        plan = pd.DataFrame([{"ProductCode": "A001", "Target_Stock": 10}])
         mock_fetch_stock.return_value = pd.DataFrame([{"GoodsID": 1}])
         mock_save_stock.return_value = Path("stock.csv")
         mock_sync_sales.return_value = pd.DataFrame([{"GoodsID": 1}])
-        mock_abc_xyz.return_value = pd.DataFrame([{"GoodsID": 1}])
-        mock_target_stock.return_value = pd.DataFrame([{"ProductCode": "A001"}])
+        mock_abc_xyz.return_value = labels
+        mock_target_stock.return_value = plan
 
         with patch.dict("os.environ", {"FORECAST_BACKEND": "recent_3m"}):
             code = run()
@@ -56,6 +63,7 @@ class AnalyticsJobTests(TestCase):
         kwargs = mock_target_stock.call_args.kwargs
         self.assertIn("sales_dir", kwargs)
         self.assertEqual(kwargs["backend_name"], "recent_3m")
+        mock_upload.assert_called_once_with(labels, plan)
 
     @patch("pos_pipeline.jobs.analytics.check_connection", return_value=True)
     @patch("pos_pipeline.jobs.analytics.fetch_stock_master")
@@ -97,6 +105,32 @@ class AnalyticsJobTests(TestCase):
         mock_save_stock.return_value = Path("stock.csv")
         mock_sync_sales.return_value = pd.DataFrame([{"GoodsID": 1}])
         mock_abc_xyz.side_effect = ValueError("sales data is empty")
+
+        self.assertEqual(run(), 1)
+
+    @patch("pos_pipeline.jobs.analytics.check_connection", return_value=True)
+    @patch("pos_pipeline.jobs.analytics.fetch_stock_master")
+    @patch("pos_pipeline.jobs.analytics.save_stock_master")
+    @patch("pos_pipeline.jobs.analytics.sync_daily_sales_parquet")
+    @patch("pos_pipeline.jobs.analytics.run_abc_xyz")
+    @patch("pos_pipeline.jobs.analytics.run_target_stock")
+    @patch("pos_pipeline.jobs.analytics.upload_analytics_results")
+    def test_returns_1_when_firestore_upload_raises(
+        self,
+        mock_upload,
+        mock_target_stock,
+        mock_abc_xyz,
+        mock_sync_sales,
+        mock_save_stock,
+        mock_fetch_stock,
+        _mock_check,
+    ) -> None:
+        mock_fetch_stock.return_value = pd.DataFrame([{"GoodsID": 1}])
+        mock_save_stock.return_value = Path("stock.csv")
+        mock_sync_sales.return_value = pd.DataFrame([{"GoodsID": 1}])
+        mock_abc_xyz.return_value = pd.DataFrame([{"GoodsID": 1}])
+        mock_target_stock.return_value = pd.DataFrame([{"ProductCode": "A001"}])
+        mock_upload.side_effect = FileNotFoundError("Firebase key not found")
 
         self.assertEqual(run(), 1)
 

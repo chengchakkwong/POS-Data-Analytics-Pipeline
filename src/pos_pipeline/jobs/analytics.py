@@ -16,6 +16,9 @@ from pos_pipeline.config import (
     TARGET_STOCK_TRACE_CSV,
 )
 from pos_pipeline.database.connection import check_connection
+from pos_pipeline.delivery_to_firebase.analytics_results import (
+    upload_analytics_results,
+)
 from pos_pipeline.extraction.stock import fetch_stock_master, save_stock_master
 from pos_pipeline.storage.sales_cache import sync_daily_sales_parquet
 
@@ -27,8 +30,9 @@ def _elapsed_sec(started: float) -> float:
 def run() -> int:
     """Run the biweekly analytics job.
 
-    Returns 0 on success. Any extract/classify/planning failure returns 1 and
-    leaves the previous successful target-stock outputs untouched.
+    Returns 0 on success. Any extract/classify/planning/upload failure returns 1.
+    Target-stock CSV outputs are written before Firestore upload, so a failed
+    upload leaves the latest successful local plan/trace files in place.
     """
     job_started = time.perf_counter()
     print(f"[job:analytics] project root: {PROJECT_ROOT}")
@@ -76,6 +80,19 @@ def run() -> int:
         print(f"[job:analytics] wrote: {TARGET_STOCK_TRACE_CSV}")
         print(
             f"[job:analytics] target-stock elapsed: {_elapsed_sec(stage_started):.1f}s"
+        )
+
+        stage_started = time.perf_counter()
+        class_written, target_written = upload_analytics_results(
+            abc_xyz_df,
+            target_stock_df,
+        )
+        print(
+            "[job:analytics] firestore upload: "
+            f"classification={class_written}, target_stock={target_written}"
+        )
+        print(
+            f"[job:analytics] firestore elapsed: {_elapsed_sec(stage_started):.1f}s"
         )
         print(f"[job:analytics] total elapsed: {_elapsed_sec(job_started):.1f}s")
         return 0
