@@ -1,0 +1,13 @@
+.git
+.cursor
+__pycache__
+*.pyc
+.env
+serviceAccountKey.json
+data/
+*.egg-info/
+.venv/
+venv/
+investigations/
+sample_data/
+docs/

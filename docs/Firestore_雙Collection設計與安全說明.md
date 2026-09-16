@@ -1,6 +1,8 @@
 # Firestore 雙 Collection 設計與安全說明
 
-本文件說明 **POS_Sync_Tool** 為何將資料寫入 Firestore collections（包含 `products` 與 `replenishment`），以及如何依此設計設定安全規則；並補充入貨/到貨核對相關資料流所需的 `inbound_movements`、`arrivalHistory`（或 `receiving_logs`）等約定。
+本文件說明為何將資料寫入 Firestore collections（包含 `products` 與 `replenishment`），以及如何依此設計設定安全規則；並補充入貨/到貨核對相關資料流所需的 `inbound_movements`、`arrivalHistory`（或 `receiving_logs`）等約定。
+
+> **現行入口**：`python -m pos_pipeline.cli daily`（庫存／入貨）、`analytics`（分類／Target_Stock）、`min-multiple`（guessed_*）。舊 `POS_Sync_Tool.py`／`firebase_service.py` 已移除。
 
 ---
 
@@ -15,12 +17,13 @@
 
 從資料流角度可視為 **Fan-out 寫入**（同一來源寫入多處）；本專案依「用途」與「權限」拆成兩 collection，各自服務不同角色與場景。架構決策脈絡（含為何採客戶端計算、為何拆兩 collection）見 **[專案心路歷程與架構決策.md](專案心路歷程與架構決策.md)**。
 
-**備註欄位與 Web App 對照（2026-06-29）**：
+**備註欄位與 Web App 對照**：
 
-| Firestore 欄位 | 寫入來源 | Web App（`GET /api/forecast`） |
-|----------------|----------|--------------------------------|
-| `note`（小寫） | `abc_xyz_analysis.py` → `upload_classification_df`（POS `Note` 原文） | 詳情「備註 (note)」 |
-| `Note`、`NoteDescription`、`FirstOrderQty` | `POS_Sync_Tool.py` → `replenishment_service.prepare()` | API 以 `note ?? Note` 合併；另回傳「備註說明」「首單量」 |
+| Firestore 欄位 | 寫入來源（v3） | Web App（`GET /api/forecast`） |
+|----------------|----------------|--------------------------------|
+| `note`（小寫） | `cli analytics` → classification upload（POS `Note` 原文） | 詳情「備註 (note)」 |
+| `Note`、`NoteDescription`、`FirstOrderQty` | `cli daily` → replenishment prepare／upload | API 以 `note ?? Note` 合併；另回傳「備註說明」「首單量」 |
+| `guessed_min`／`guessed_multiple` | `cli min-multiple` | 未確認前當 Min／Multiple fallback |
 
 詳見 `my-barcode-app/docs/FORECAST_RESTOCK.md` §3.4。
 
@@ -133,7 +136,7 @@ match /replenishment/{productId} {
 
 同步程式為了節省 Firestore 寫入量，使用本地快取檔與 Hash 來判斷「哪些 document 需要重寫」。
 
-- **本地快取檔**：`data/sync_cache.json`
+- **本地快取檔**：`data/cache/sync_cache.json`
   - 由 `firebase_service.FirebaseManager` 在初始化時讀入 (`_load_cache()`)，結束或同步後寫回 (`_save_cache()`)。
   - 以 `ProductCode` 或自訂 cache key（如 `repl:{ProductCode}`、`repl_min_mult:{ProductCode}`）作為索引。
 
@@ -155,21 +158,22 @@ match /replenishment/{productId} {
   - 建議沿用相同「Hash + 快取」策略以降低 Firestore 寫入量。
   - watermark 以 `SID` 控制增量讀取；cache key 可採類似 `inbound:{SID}` 避免反覆重寫未變更 document。
 
-> 若需要在程式邏輯變更後「強制全量重寫」（例如新增欄位，想讓所有既有 document 也帶上），可以人工刪除 `data/sync_cache.json` 再執行同步工具；這次會視為首次上傳，全部 document 重新寫入，之後仍回到上述的增量同步邏輯。
+> 若需要在程式邏輯變更後「強制全量重寫」（例如新增欄位，想讓所有既有 document 也帶上），可以人工刪除 `data/cache/sync_cache.json` 再執行同步工具；這次會視為首次上傳，全部 document 重新寫入，之後仍回到上述的增量同步邏輯。
 
 ---
 
 ## 五、與本專案檔案對照
 
-| 項目           | 說明 |
-|----------------|------|
-| 同步入口       | `POS_Sync_Tool.py` |
-| 上傳 products  | `firebase_service.FirebaseManager.upload_stock_data()` |
-| 上傳 replenishment | `firebase_service.FirebaseManager.upload_replenishment_data()` |
-| （擴充）同步入貨紀錄 | `inbound_movements`（由同步端新增/擴充） |
-| 補貨資料加工   | `replenishment_service.prepare()` |
+| 項目 | 說明 |
+|------|------|
+| 同步入口 | `python -m pos_pipeline.cli daily` |
+| 上傳 products | `pos_pipeline.delivery_to_firebase.products` |
+| 上傳 replenishment | `pos_pipeline.delivery_to_firebase.replenishment` |
+| 同步入貨紀錄 | `pos_pipeline.delivery_to_firebase.inbound`（`inbound_movements`） |
+| guessed min/multiple | `pos_pipeline.cli min-multiple` |
+| 增量狀態 | Firestore `sync_state/*`（不再使用本機 `sync_cache.json`） |
 
-操作步驟與指令請見 **[使用說明.md](使用說明.md)** 當中的「二之一、Firebase 同步（POS_Sync_Tool）」一節。
+操作步驟與指令請見 **[使用說明.md](使用說明.md)**。
 
 ---
 

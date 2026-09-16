@@ -1,0 +1,19 @@
+# Experimental NeuralProphet stack for offline comparison / research only.
+# Do NOT install this into the production Prophet environment by default:
+# NeuralProphet/PyTorch ecosystems often pin an older NumPy than requirements-base.txt.
+#
+# Recommended usage:
+#   1. create a separate venv
+#   2. pip install -r requirements-neuralprophet.txt
+#   3. run backtests with FORECAST_BACKEND=neuralprophet (once wired in the job)
+#
+# Pins below are intentionally conservative and may need local adjustment.
+
+-r requirements.txt
+
+# Override the shared NumPy 2.x pin from requirements-base when needed.
+numpy>=1.25,<2.0
+torch>=2.0,<2.5
+neuralprophet>=0.8,<1.0
+joblib>=1.3,<2
+tqdm>=4.66,<5

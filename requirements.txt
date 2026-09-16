@@ -1,7 +1,6 @@
 # Production runtime: POS SQL sync + ABC/XYZ analytics + Firebase sync.
 # Use requirements-demo.txt for the public offline demo.
-# Install requirements-forecast.txt only when running inventory_forecast.py.
-
+# Install requirements-forecast.txt when running the analytics pipeline with Prophet.
 -r requirements-demo.txt
 
 # SQL Server ETL
@@ -9,5 +8,5 @@ sqlalchemy==2.0.45
 pyodbc==5.3.0
 python-dotenv==1.2.1
 
-# Firestore upload used by POS_Sync_Tool.py and classification sync.
+# Firestore upload used by pos_pipeline.cli (daily / analytics / min-multiple).
 firebase-admin>=6.5.0,<7

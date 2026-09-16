@@ -1,0 +1,1 @@
+"""Upload pipeline outputs to Firebase Firestore."""
