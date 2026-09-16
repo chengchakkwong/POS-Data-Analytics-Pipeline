@@ -50,11 +50,11 @@ End-to-end Python pipeline that turns POS SQL data into decision-ready analytics
 - **交付的決策支援**：管道產出 ABC/XYZ、策略標籤與需求導向的 `Target_Stock`，供內部 Web App 使用；最終訂貨仍由管理者判斷，必備商品等例外可人工覆核。
 
 - **Pipeline**: Incremental Parquet sync → metrics → Firestore → web app.
-- **Misc barcodes**: `AdjustedCost` logic for generic-barcode SKUs in [`abc_xyz_analysis.py`](abc_xyz_analysis.py).
+- **Misc barcodes**: `AdjustedCost` logic for generic-barcode SKUs in `pos_pipeline.analysis.abc` / ABC-XYZ job.
 - **Inventory signals**: Strategy labels (e.g. `CZ` for potential retirement review); replenishment board compares `Target_Stock` with on-hand stock.
 
 - **管道**：增量 Parquet → 指標 → Firestore → Web App。
-- **萬用條碼**：[`abc_xyz_analysis.py`](abc_xyz_analysis.py) 內 `AdjustedCost` 校正邏輯。
+- **萬用條碼**：v3 ABC/XYZ（`pos_pipeline.analysis`）內 `AdjustedCost` 校正邏輯。
 - **庫存信號**：策略標籤（如 `CZ` 考慮汰換檢視）；補貨看板比較 `Target_Stock` 與現有庫存。
 
 ## Pilot Evaluation / 試行評估
@@ -107,7 +107,7 @@ The pipeline does not stop at CSV files. In production, computed metrics are inc
 
 ```mermaid
 flowchart LR
-  ETL["Python ETL + ABC/XYZ + Inventory Metrics"] --> Upload["firebase_service.py (incremental upload)"]
+  ETL["Python ETL + ABC/XYZ + Inventory Metrics"] --> Upload["pos_pipeline delivery_to_firebase"]
   Upload --> FS[("Firestore: products / replenishment / inbound_movements")]
   FS --> Scan["Web App: price & stock lookup"]
   FS --> Repl["Web App: replenishment board"]
@@ -119,8 +119,8 @@ flowchart LR
 - **`replenishment`** — target stock, order rules, and ABC/XYZ labels → replenishment suggestions.（目標庫存、補貨規則及 ABC/XYZ 標籤）
 - **`inbound_movements`** — inbound records → admin arrival verification.（入貨單據，後台到貨核對）
 
-**Engineering notes / 工程設計**：uploads use per-record MD5 hashing to skip unchanged documents (saving write quota) and Firestore batch writes for throughput. See [`firebase_service.py`](firebase_service.py).  
-上傳採用單筆 MD5 指紋比對，跳過未變動文件以節省寫入額度，並用 Firestore batch 批次寫入。
+**Engineering notes / 工程設計**：uploads use per-record content hashing and Firestore `sync_state` to skip unchanged documents (saving write quota), with batch writes where applicable. See [`src/pos_pipeline/delivery_to_firebase/`](src/pos_pipeline/delivery_to_firebase/).  
+上傳採用內容指紋與 Firestore `sync_state` 跳過未變動文件以節省寫入額度，並視情況使用 batch 寫入。
 
 ### Screenshots / 截圖
 
@@ -243,14 +243,14 @@ The v3 package is the supported analytics implementation. Legacy root sync and c
 | Path | Role |
 |------|------|
 | [`demo_pipeline.py`](demo_pipeline.py) | Offline demo entry — reads `sample_data/`, writes `demo_output/` |
-| [`src/pos_pipeline/`](src/pos_pipeline/) | v3 package — `cli daily` / `cli analytics` |
+| [`src/pos_pipeline/`](src/pos_pipeline/) | v3 package — `cli daily` / `cli analytics` / `cli min-multiple` |
 | [`docs/ANALYTICS_PIPELINE.md`](docs/ANALYTICS_PIPELINE.md) | v3 analytics data flow, rules, and column contract |
+| [`docs/使用說明.md`](docs/使用說明.md) | Internal runbook (Chinese) |
 | [`Dockerfile.daily`](Dockerfile.daily) | Image for the scheduled daily job |
 | [`docs/CLOUD_RUN_DAILY.md`](docs/CLOUD_RUN_DAILY.md) | Cloud Run / Scheduler runbook |
-| [`pos_service.py`](pos_service.py) | Legacy SQL extract (still used by min-multiple) |
-| [`db_utils.py`](db_utils.py) | Legacy DB helpers |
-| [`deprecated/`](deprecated/) | Superseded scripts (old sync/upload, PyInstaller spec) |
+| [`deprecated/`](deprecated/) | Superseded scripts (not runnable without restored legacy deps) |
 | [`experiments/`](experiments/) | Non-production feature / weather experiments |
+| [`parquet_utils.py`](parquet_utils.py) | Hive Parquet helpers (used by v3 sales cache / analytics) |
 | [`scripts/anonymize_data.py`](scripts/anonymize_data.py) | Generate anonymized `sample_data/` from local processed data |
 | [`sample_data/`](sample_data/) | Committed anonymized demo dataset |
 | [`requirements-base.txt`](requirements-base.txt) | Shared pinned Pandas / NumPy / PyArrow stack |

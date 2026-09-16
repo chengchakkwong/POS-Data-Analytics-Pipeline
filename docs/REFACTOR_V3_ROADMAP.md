@@ -67,9 +67,9 @@
 
 | 舊 | 新（方向） |
 |----|------------|
-| `pos_system_v2.py` / `pos_service.py` | `extraction/` + `jobs/daily.py` |
-| `db_utils.py` | `database/connection.py` |
-| `POS_Sync_Tool.py` + `firebase_service.py` | `jobs/daily.py` + `delivery_to_firebase/` |
+| `pos_system_v2.py` / `pos_service.py` | `extraction/` + `jobs/daily.py`／`analytics`（舊檔已刪） |
+| `db_utils.py` | `database/connection.py`（根目錄若仍留檔，僅過渡） |
+| `POS_Sync_Tool.py` + `firebase_service.py` | `jobs/daily.py` + `delivery_to_firebase/`（舊檔已刪） |
 | `abc_xyz_analysis.py` | `jobs/analytics.py` + `analysis/`（舊檔已刪） |
 | `inventory_forecast.py` | 已由 `analysis/target_stock.py` + `forecasting.py` + `demand.py` 取代 |
-| `update_min_multiple.py` | `jobs/min_multiple.py` + `analysis/min_multiple.py` + `delivery_to_firebase/min_multiple.py`（舊檔暫留、已標棄用） |
+| `update_min_multiple.py` | `jobs/min_multiple.py` + `analysis/min_multiple.py` + `delivery_to_firebase/min_multiple.py`（舊檔已刪） |
