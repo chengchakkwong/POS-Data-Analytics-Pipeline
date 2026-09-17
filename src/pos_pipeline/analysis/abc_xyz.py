@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from parquet_utils import load_sales_parquet
 from pos_pipeline.analysis.abc import analyze_profit_abc
 from pos_pipeline.analysis.monthly_series import resolve_complete_month_cutoff
 from pos_pipeline.analysis.xyz import analyze_xyz
 from pos_pipeline.config import ABC_XYZ_CSV, SALES_PARQUET_DIR, STOCK_MASTER_CSV
+from pos_pipeline.storage.parquet_utils import load_sales_parquet
 
 
 def attach_xyz_and_strategy(

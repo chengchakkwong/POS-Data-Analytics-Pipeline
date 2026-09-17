@@ -89,7 +89,7 @@ flowchart TD
 |------|------|------|
 | `FORECAST_BACKEND` | `prophet` | `prophet` / `neuralprophet` / `recent_3m` |
 
-正式排程建議使用 Prophet；NeuralProphet 僅實驗環境（見 `requirements-neuralprophet.txt`）。
+正式排程建議使用 Prophet；NeuralProphet 僅實驗環境（見 `requirements/neuralprophet.txt`）。
 
 ---
 
@@ -175,9 +175,9 @@ flowchart TD
 ### 正式（需 SQL）
 
 ```powershell
-pip install -r requirements.txt
+pip install -r requirements/prod.txt
 pip install -e .
-pip install -r requirements-forecast.txt   # X/Y Prophet
+pip install -r requirements/forecast.txt   # X/Y Prophet
 python -m pos_pipeline.cli analytics
 ```
 

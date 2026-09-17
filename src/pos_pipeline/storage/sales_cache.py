@@ -7,9 +7,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from parquet_utils import load_sales_max_date, load_sales_partitions
 from pos_pipeline.config import SALES_PARQUET_DIR
 from pos_pipeline.extraction.sales import DEFAULT_SALES_START, fetch_daily_sales
+from pos_pipeline.storage.parquet_utils import (
+    load_sales_max_date,
+    load_sales_partitions,
+)
 
 
 def sync_daily_sales_parquet(cache_dir: Path | None = None) -> pd.DataFrame:
