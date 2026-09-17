@@ -1,4 +1,4 @@
-"""Daily extract + Firestore sync job (stub)."""
+"""Daily extract + Firestore sync job."""
 
 from pos_pipeline.config import PROJECT_ROOT
 from pos_pipeline.database.connection import check_connection
