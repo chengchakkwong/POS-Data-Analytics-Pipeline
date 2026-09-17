@@ -249,7 +249,7 @@ The v3 package is the supported analytics implementation. Legacy root sync and c
 | [`Dockerfile.daily`](Dockerfile.daily) | Image for the scheduled daily job |
 | [`docs/CLOUD_RUN_DAILY.md`](docs/CLOUD_RUN_DAILY.md) | Cloud Run / Scheduler runbook |
 | [`experiments/`](experiments/) | Non-production feature / weather experiments |
-| [`parquet_utils.py`](parquet_utils.py) | Hive Parquet helpers (used by v3 sales cache / analytics) |
+| [`src/pos_pipeline/storage/parquet_utils.py`](src/pos_pipeline/storage/parquet_utils.py) | Hive Parquet helpers (sales cache / analytics) |
 | [`scripts/anonymize_data.py`](scripts/anonymize_data.py) | Generate anonymized `sample_data/` from local processed data |
 | [`sample_data/`](sample_data/) | Committed anonymized demo dataset |
 | [`requirements-base.txt`](requirements-base.txt) | Shared pinned Pandas / NumPy / PyArrow stack |

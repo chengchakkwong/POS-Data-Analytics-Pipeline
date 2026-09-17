@@ -142,7 +142,7 @@ class OfflineAnalyticsPipelineTests(TestCase):
         from pos_pipeline.analysis.abc_xyz import run_abc_xyz
         from pos_pipeline.analysis.forecasting import RecentMeanBackend
         from pos_pipeline.analysis.target_stock import PLAN_COLUMNS, run_target_stock
-        from parquet_utils import load_sales_parquet
+        from pos_pipeline.storage.parquet_utils import load_sales_parquet
 
         sample_dir = Path("sample_data")
         stock_path = sample_dir / "stock.csv"

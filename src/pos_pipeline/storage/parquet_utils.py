@@ -1,3 +1,5 @@
+"""Hive-aware Parquet helpers for the sales cache."""
+
 from __future__ import annotations
 
 from pathlib import Path

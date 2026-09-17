@@ -515,7 +515,7 @@ def run_target_stock(
         if focus_skus.empty:
             sales_df = pd.DataFrame(columns=["GoodsID", "rDate", "TotalQty"])
         else:
-            from parquet_utils import load_sales_parquet
+            from pos_pipeline.storage.parquet_utils import load_sales_parquet
 
             sales_df = load_sales_parquet(sales_dir or SALES_PARQUET_DIR)
 
