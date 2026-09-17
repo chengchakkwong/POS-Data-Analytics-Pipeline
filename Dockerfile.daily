@@ -21,10 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements-base.txt requirements-demo.txt requirements.txt pyproject.toml ./
+COPY requirements ./requirements
+COPY pyproject.toml ./
 COPY src ./src
 
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir -r requirements/prod.txt \
     && pip install --no-cache-dir -e .
 
 # Key and .env are injected at runtime (Secret Manager), not baked into the image.

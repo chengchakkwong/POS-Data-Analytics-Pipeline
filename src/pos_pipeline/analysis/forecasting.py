@@ -81,7 +81,7 @@ def _load_prophet_class():
         from prophet import Prophet
     except ImportError as exc:  # pragma: no cover - depends on local install
         raise RuntimeError(
-            "Prophet is not installed; install requirements-forecast.txt"
+            "Prophet is not installed; install requirements/forecast.txt"
         ) from exc
     return Prophet
 
@@ -93,7 +93,7 @@ def _load_neuralprophet_class():
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise RuntimeError(
             "NeuralProphet is not installed; install "
-            "requirements-neuralprophet.txt for experimental runs"
+            "requirements/neuralprophet.txt for experimental runs"
         ) from exc
     return NeuralProphet
 

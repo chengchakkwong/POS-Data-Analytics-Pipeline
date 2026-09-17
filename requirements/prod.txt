@@ -1,7 +1,11 @@
 # Production runtime: POS SQL sync + ABC/XYZ analytics + Firebase sync.
-# Use requirements-demo.txt for the public offline demo.
-# Install requirements-forecast.txt when running the analytics pipeline with Prophet.
--r requirements-demo.txt
+# Use requirements/demo.txt for the public offline demo.
+# Install requirements/forecast.txt when running analytics with Prophet.
+#
+#   pip install -r requirements/prod.txt
+#   pip install -e .
+
+-r demo.txt
 
 # SQL Server ETL
 sqlalchemy==2.0.45

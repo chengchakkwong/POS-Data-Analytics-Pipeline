@@ -156,7 +156,7 @@ cd POS-Data-Analytics-Pipeline
 python -m venv .venv
 # Windows: .venv\Scripts\activate
 # macOS/Linux: source .venv/bin/activate
-pip install -r requirements-demo.txt
+pip install -r requirements/demo.txt
 python demo_pipeline.py
 ```
 
@@ -215,12 +215,12 @@ See [`sample_data/README.md`](sample_data/README.md) for anonymization rules and
 Recommended v3 path:
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements/prod.txt
 pip install -e .
 # Create .env with DB credentials (see Configuration below)
 
 python -m pos_pipeline.cli daily        # Stock + Firestore sync
-pip install -r requirements-forecast.txt
+pip install -r requirements/forecast.txt
 python -m pos_pipeline.cli analytics    # ABC/XYZ + A/B/New/C target stock
 ```
 
@@ -235,7 +235,7 @@ The v3 package is the supported analytics implementation. Legacy root sync and c
 - **Database**: SQLAlchemy, SQL Server (pyodbc)
 - **Delivery**: Decision-ready CSV analytics and incremental Firestore document sync
 - **Scheduled sync (v3)**: Cloud Build → Artifact Registry → Cloud Run Job + Cloud Scheduler（細節見 [`docs/CLOUD_RUN_DAILY.md`](docs/CLOUD_RUN_DAILY.md)）
-- **Forecasting** *(optional)*: Prophet via `requirements-forecast.txt`; NeuralProphet experimental via `requirements-neuralprophet.txt`
+- **Forecasting** *(optional)*: Prophet via `requirements/forecast.txt`; NeuralProphet experimental via `requirements/neuralprophet.txt`
 - **Env**: python-dotenv, venv / pip
 
 ## Project Structure / 檔案結構
@@ -252,11 +252,11 @@ The v3 package is the supported analytics implementation. Legacy root sync and c
 | [`src/pos_pipeline/storage/parquet_utils.py`](src/pos_pipeline/storage/parquet_utils.py) | Hive Parquet helpers (sales cache / analytics) |
 | [`scripts/anonymize_data.py`](scripts/anonymize_data.py) | Generate anonymized `sample_data/` from local processed data |
 | [`sample_data/`](sample_data/) | Committed anonymized demo dataset |
-| [`requirements-base.txt`](requirements-base.txt) | Shared pinned Pandas / NumPy / PyArrow stack |
-| [`requirements-demo.txt`](requirements-demo.txt) | Offline demo dependencies |
-| [`requirements.txt`](requirements.txt) | Production runtime dependencies |
-| [`requirements-forecast.txt`](requirements-forecast.txt) | Official Prophet forecast dependencies |
-| [`requirements-neuralprophet.txt`](requirements-neuralprophet.txt) | Experimental NeuralProphet stack |
+| [`requirements/base.txt`](requirements/base.txt) | Shared pinned Pandas / NumPy / PyArrow stack |
+| [`requirements/demo.txt`](requirements/demo.txt) | Offline demo dependencies |
+| [`requirements/prod.txt`](requirements/prod.txt) | Production runtime dependencies |
+| [`requirements/forecast.txt`](requirements/forecast.txt) | Official Prophet forecast dependencies |
+| [`requirements/neuralprophet.txt`](requirements/neuralprophet.txt) | Experimental NeuralProphet stack |
 
 ## Configuration / 設定
 

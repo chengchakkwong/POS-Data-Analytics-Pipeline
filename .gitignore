@@ -124,5 +124,7 @@ docs/*_草稿.md
 docs/*_AI參考.md
 investigations/invoice_input_time/*_內部版.md
 
+!requirements/
+!requirements/*.txt
 !requirements.txt
 !requirements-*.txt

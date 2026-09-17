@@ -13,7 +13,7 @@
 | 待辦與目標 | 這次要做的功能／修復／優化是什麼 | `DevLog.md` 文末「下次要做的優化」、專案 issue／任務 |
 | 既有邏輯 | 要改的模組怎麼運作、依賴誰 | 相關 `.py`、`README`、`docs/使用說明.md` |
 | 約定與風格 | 專案怎麼命名、怎麼 commit、日誌怎麼寫 | `docs/GIT_COMMIT_STYLE_私用.md`、`DevLog.md` 格式說明 |
-| 環境與依賴 | 需要哪些套件、DB／API 設定 | `requirements.txt`、`.env` 或設定檔 |
+| 環境與依賴 | 需要哪些套件、DB／API 設定 | `requirements/`、`.env` 或設定檔 |
 
 ### 2. 開發前檢查清單（可打勾）
 
