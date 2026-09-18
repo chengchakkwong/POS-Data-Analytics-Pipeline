@@ -1,9 +1,11 @@
 # Public offline demo runtime.
 # Install this for demo_pipeline.py and demo_firebase_payload.py.
 #
-#   pip install -r requirements/demo.txt
+# pip install -r requirements/demo.txt
 
 -r base.txt
+
+python-dotenv==1.2.1
 
 # Optional helper used when regenerating anonymized sample_data locally.
 faker>=22.0,<40
